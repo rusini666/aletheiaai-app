@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+torch
+transformers
+peft
+huggingface_hub
+nltk
+PyPDF2
+shap
+lime
+pdfminer.six
+python-multipart

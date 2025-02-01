@@ -9,7 +9,12 @@ const ExplanationReport: React.FC = () => {
   const location = useLocation();
   const { htmlContent } = location.state || {};
 
-  return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />;
+  return (
+    <iframe
+      srcDoc={htmlContent}
+      style={{ width: "100%", height: "100vh", border: "none" }}
+    />
+  );
 };
 
 export default ExplanationReport;

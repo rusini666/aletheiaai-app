@@ -1,7 +1,13 @@
 import React, { useState, useRef } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import * as pdfjsLib from "pdfjs-dist";
+
+// 1) Use the legacy build
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf";
+
+// 2) Point the workerSrc to a known CDN
+pdfjs.GlobalWorkerOptions.workerSrc =
+  "https://unpkg.com/pdfjs-dist@3.5.141/legacy/build/pdf.worker.min.js";
 
 interface ClassificationResult {
   prediction: string;
@@ -13,10 +19,6 @@ const TextProcessor: React.FC = () => {
   const [error, setError] = useState<string>("");
   const [uploadedFileName, setUploadedFileName] = useState<string>("");
   const [fileType, setFileType] = useState<string>("");
-
-  // For displaying short ("Detailed") explanation
-  const [classificationResult, setClassificationResult] =
-    useState<ClassificationResult | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
@@ -31,68 +33,84 @@ const TextProcessor: React.FC = () => {
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
-    if (file) {
-      setError("");
-      setUploadedFileName("");
-      setInputText("");
-      setFileType("");
+    if (!file) return;
 
-      const fileExtension = file.name.split(".").pop()?.toLowerCase();
+    setError("");
+    setUploadedFileName("");
+    setInputText("");
+    setFileType("");
 
-      if (fileExtension === "txt") {
-        if (file.type !== "text/plain") {
-          setError("Only plain text files are supported for .txt extension.");
-          return;
-        }
+    const fileExtension = file.name.split(".").pop()?.toLowerCase();
+    console.log(
+      "[DEBUG] Uploaded file:",
+      file.name,
+      "extension:",
+      fileExtension
+    );
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const text = e.target?.result;
-          if (typeof text === "string") {
-            setInputText(text);
-            setUploadedFileName(file.name);
-            setFileType("txt");
-          }
-        };
-        reader.onerror = () => {
-          setError("Failed to read the text file.");
-        };
-        reader.readAsText(file);
-      } else if (fileExtension === "pdf") {
-        if (file.type !== "application/pdf") {
-          setError("Only PDF files are supported for .pdf extension.");
-          return;
-        }
-
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          let textContent = "";
-
-          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            const page = await pdf.getPage(pageNum);
-            const content = await page.getTextContent();
-            const pageText = content.items
-              .map((item: any) => item.str)
-              .join(" ");
-            textContent += pageText + "\n";
-          }
-
-          if (textContent.trim() === "") {
-            setError("No extractable text found in the PDF file.");
-            return;
-          }
-
-          setInputText(textContent);
-          setUploadedFileName(file.name);
-          setFileType("pdf");
-        } catch (err) {
-          console.error(err);
-          setError("Failed to extract text from the PDF file.");
-        }
-      } else {
-        setError("Unsupported file type. Please upload a .txt or .pdf file.");
+    if (fileExtension === "txt") {
+      if (file.type !== "text/plain") {
+        setError("Only plain text files are supported for .txt extension.");
+        return;
       }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result;
+        if (typeof text === "string") {
+          console.log(
+            "[DEBUG] Extracted text from TXT file:",
+            text.slice(0, 100),
+            "..."
+          );
+          setInputText(text);
+          setUploadedFileName(file.name);
+          setFileType("txt");
+        }
+      };
+      reader.onerror = () => {
+        setError("Failed to read the text file.");
+      };
+      reader.readAsText(file);
+    } else if (fileExtension === "pdf") {
+      if (file.type !== "application/pdf") {
+        setError("Only PDF files are supported for .pdf extension.");
+        return;
+      }
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        // 3) Use pdfjs (not pdfjsLib)
+        const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        console.log("[DEBUG] PDF loaded. Number of pages:", pdfDoc.numPages);
+
+        let textContent = "";
+
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum);
+          const content = await page.getTextContent();
+          console.log(`[DEBUG] Page ${pageNum} text items:`, content.items);
+
+          const pageText = content.items.map((item: any) => item.str).join(" ");
+          textContent += pageText + "\n";
+        }
+
+        console.log("[DEBUG] Final extracted text length:", textContent.length);
+
+        if (textContent.trim() === "") {
+          setError("No extractable text found in the PDF file.");
+          return;
+        }
+
+        setInputText(textContent);
+        setUploadedFileName(file.name);
+        setFileType("pdf");
+      } catch (err) {
+        console.error("[DEBUG] PDF extraction error:", err);
+        setError("Failed to extract text from the PDF file.");
+      }
+    } else {
+      setError("Unsupported file type. Please upload a .txt or .pdf file.");
     }
   };
 
@@ -100,39 +118,36 @@ const TextProcessor: React.FC = () => {
   // 2) "Detailed Explanation"
   //    (short free-text explanation from /api/classify)
   // --------------------------
-const handleDetailedExplanation = async () => {
-  if (!inputText) {
-    setError("Please input text or upload a valid file.");
-    return;
-  }
-
-  try {
-    setError("");
-    setClassificationResult(null);
-
-    const response = await axios.post(`${BACKEND_URL}/api/classify`, {
-      text: inputText,
-    });
-
-    if (response.status === 200 && response.data) {
-      // e.g.: { prediction, explanation }
-      const classificationResultData: ClassificationResult = {
-        prediction: response.data.prediction,
-        explanation: response.data.explanation,
-      };
-
-      // Instead of setting local state, we navigate to "/smart-explanation"
-      navigate("/smart-explanation", {
-        state: { classificationResult: classificationResultData },
-      });
-    } else {
-      setError("Failed to get a detailed explanation. Please try again.");
+  const handleDetailedExplanation = async () => {
+    if (!inputText) {
+      setError("Please input text or upload a valid file.");
+      return;
     }
-  } catch (error) {
-    console.error(error);
-    setError("An error occurred while getting the explanations.");
-  }
-};
+
+    try {
+      setError("");
+      const response = await axios.post(`${BACKEND_URL}/api/classify`, {
+        text: inputText,
+      });
+
+      if (response.status === 200 && response.data) {
+        // e.g.: { prediction, explanation }
+        navigate("/smart-explanation", {
+          state: {
+            classificationResult: {
+              prediction: response.data.prediction,
+              explanation: response.data.explanation,
+            } as ClassificationResult,
+          },
+        });
+      } else {
+        setError("Failed to get a detailed explanation. Please try again.");
+      }
+    } catch (error) {
+      console.error("[DEBUG] Explanation error:", error);
+      setError("An error occurred while getting the explanations.");
+    }
+  };
 
   // --------------------------
   // 3) "SHAP + LIME Explanation"
@@ -146,15 +161,11 @@ const handleDetailedExplanation = async () => {
 
     try {
       setError("");
-
       const response = await axios.post(`${BACKEND_URL}/api/explain`, {
         text: inputText,
       });
 
-      // The backend is expected to return the entire final_report.html as plain text
-      // if we do 'return html_content, 200' in Flask
       if (response.status === 200 && response.data) {
-        // Navigate to the explanation-report page, passing the HTML
         navigate("/explanation-report", {
           state: { htmlContent: response.data },
         });
@@ -164,7 +175,7 @@ const handleDetailedExplanation = async () => {
         );
       }
     } catch (error) {
-      console.error(error);
+      console.error("[DEBUG] SHAP+LIME error:", error);
       setError(
         "An error occurred while generating the SHAP + LIME explanation."
       );
@@ -192,7 +203,7 @@ const handleDetailedExplanation = async () => {
 
         {/* Three Buttons */}
         <div className="flex flex-wrap justify-center gap-4">
-          {/* Button 1: "Detailed Explanation" (Calls /api/classify) */}
+          {/* Button 1: "Detailed Explanation" */}
           <button
             onClick={handleDetailedExplanation}
             className="px-6 py-3 bg-green-500 text-white text-lg font-semibold rounded-lg hover:bg-green-600 transition"
@@ -200,7 +211,7 @@ const handleDetailedExplanation = async () => {
             Smart AI Explanation
           </button>
 
-          {/* Button 2: "SHAP + LIME Explanation" (Calls /api/explain) */}
+          {/* Button 2: "SHAP + LIME Explanation" */}
           <button
             onClick={handleShapLimeExplanation}
             className="px-6 py-3 bg-blue-500 text-white text-lg font-semibold rounded-lg hover:bg-blue-600 transition"
@@ -229,7 +240,7 @@ const handleDetailedExplanation = async () => {
         {/* Hidden file input */}
         <input
           type="file"
-          accept=".txt,application/pdf"
+          accept=".txt, .pdf"
           ref={fileInputRef}
           onChange={handleFileUpload}
           className="hidden"

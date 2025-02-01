@@ -4,20 +4,16 @@ import os
 import re
 import sys
 import time
-import ssl
 import json
-import base64
 import string
 import threading
-import pickle
-import types
+
 
 import torch
 from torch import nn
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")  # Must be done before importing pyplot
+
 import matplotlib.pyplot as plt
 
 from flask import Flask, request, jsonify, send_file
@@ -66,7 +62,7 @@ app_configs = {
 # Device Selection
 ##############################################################################
 def target_device():
-    """Use GPU if available, else MPS on Apple Silicon, else CPU."""
+    """Use GPU if available, else CPU or MPS on Apple Silicon."""
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -74,7 +70,7 @@ def target_device():
     else:
         device = torch.device("cpu")
     app_configs["device"] = device
-    print(f"[DEBUG] Using device: {app_configs['device']}")
+    print(f"[DEBUG] Using device: {device}")
     return device
 
 ##############################################################################
@@ -106,11 +102,10 @@ class PreprocessDataset:
         self.custom_stop_words = set(stopwords.words('english'))
 
     def preprocess(self, text):
-        """Preprocess the input text for classification."""
         start_prep = time.time()
         original_text = text
 
-        # Replace fancy dashes/quotes that can break some libs
+        # Replace fancy dashes/quotes
         text = text.replace("—", "-").replace("“", '"').replace("”", '"')
 
         # Remove usernames, URLs
@@ -145,11 +140,10 @@ class PreprocessDataset:
 ##############################################################################
 class CustomOPTClassifier(nn.Module):
     """
-    Simple feed-forward classifier on top of an OPT-like model's final logits.
-    We take the last token's logits => dimension: vocab_size => feed into small MLP => 1 output.
+    Feed-forward classifier on top of an OPT-like model's final logits.
     """
     def __init__(self, pretrained_model):
-        super(CustomOPTClassifier, self).__init__()
+        super().__init__()
         print("[DEBUG] Initializing CustomOPTClassifier...")
         self.opt = pretrained_model
         self.fc1 = nn.Linear(pretrained_model.config.vocab_size, 32)
@@ -159,22 +153,33 @@ class CustomOPTClassifier(nn.Module):
     def forward(self, input_ids, attention_mask):
         print("[DEBUG] Running classifier forward pass...")
         start_forward = time.time()
+        
         # The base model => (batch_size, seq_len, vocab_size)
         opt_logits = self.opt(input_ids=input_ids, attention_mask=attention_mask).logits
-        # Take last token's logits => (batch_size, vocab_size)
-        opt_out = opt_logits[:, -1, :]
-        x = self.fc1(opt_out)
+
+        # OPTION 1: Using last token's logits (your current approach)
+        last_token_logits = opt_logits[:, -1, :]
+
+        # OPTION 2: Pooling over all tokens (might be better)
+        pooled_logits = opt_logits.mean(dim=1)  # Average over all tokens
+
+        # Pass through classifier head
+        x = self.fc1(pooled_logits)  # <- Change here if using pooled_logits
         x = self.relu(x)
         x = self.fc2(x)
+
         end_forward = time.time()
         print(f"[DEBUG] Forward pass completed in {end_forward - start_forward:.2f}s")
-        return x
+        return torch.sigmoid(x)
+
 
 ##############################################################################
 # Load Pretrained Model for Classification
 ##############################################################################
 def classification_get_pretrained_model():
-    """Load tokenizer + base model + LoRA checkpoint for classification."""
+    """
+    Load tokenizer + base model + LoRA checkpoint for classification.
+    """
     start_time = time.time()
     print("[DEBUG] Loading classifier tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(app_configs["base_model"])
@@ -183,7 +188,7 @@ def classification_get_pretrained_model():
         print("[DEBUG] Added pad_token to tokenizer")
 
     print("[DEBUG] Loading classifier base model...")
-    pretrained_model = AutoModelForCausalLM.from_pretrained(app_configs["base_model"])
+    base_model = AutoModelForCausalLM.from_pretrained(app_configs["base_model"], cache_dir="./cache")
     
     # LoRA config
     lora_config = LoraConfig(
@@ -193,7 +198,7 @@ def classification_get_pretrained_model():
         lora_dropout=0.1,
         target_modules=["q_proj", "v_proj"]
     )
-    model_with_lora = get_peft_model(pretrained_model, lora_config)
+    model_with_lora = get_peft_model(base_model, lora_config)
 
     print("[DEBUG] Initializing custom classifier head...")
     classifier = CustomOPTClassifier(model_with_lora)
@@ -231,12 +236,10 @@ def spinner():
     sys.stdout.write('\r[DEBUG] Explanation generation completed.          \n')
     sys.stdout.flush()
 
-def generate_explanation(
-    text: str, 
-    prediction: str, 
-    explanation_tokenizer, 
-    explanation_model
-):
+def generate_explanation(text, prediction, explanation_tokenizer, explanation_model):
+    """
+    Generates 2 distinct explanations (free text) for why the text is AI/Human.
+    """
     if explanation_model is None:
         return ("No explanation model available.", "No explanation model available.")
 
@@ -271,13 +274,14 @@ Do not restate the text verbatim.
             padding=True
         ).to(app_configs["device"])
 
+        # For faster generation, reduce max_new_tokens
         outputs = explanation_model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            max_new_tokens=1024,
-            temperature=0.0, # 0.7
-            top_k=1, # 40
-            do_sample=False, # True
+            max_new_tokens=256,
+            temperature=0.0,  
+            top_k=1,         
+            do_sample=False, 
             pad_token_id=explanation_tokenizer.pad_token_id
         )
         raw_text = explanation_tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -290,13 +294,11 @@ Do not restate the text verbatim.
         end_exp = time.time()
         print(f"[DEBUG] Explanation generated in {end_exp - start_exp:.2f}s")
 
-    # Now actually return the decoded text
     return raw_text
 
 def explanation_get_pretrained_model():
     """
-    Load the explanation model (e.g., Mistral-7B) and tokenizer, 
-    used for generating free-text explanations.
+    Load Mistral (or another LLM) for free-text explanations.
     """
     explanation_model_name = "mistralai/Mistral-7B-Instruct-v0.3"
     print(f"[DEBUG] Loading explanation tokenizer: {explanation_model_name}")
@@ -305,11 +307,11 @@ def explanation_get_pretrained_model():
         explanation_tokenizer.add_special_tokens({"pad_token": explanation_tokenizer.eos_token})
         print("[DEBUG] Added pad_token to explanation tokenizer")
 
-    print("[DEBUG] Loading explanation model (may be large)...")
+    print("[DEBUG] Loading explanation model (this can be large)...")
     try:
         explanation_model = AutoModelForCausalLM.from_pretrained(
             explanation_model_name,
-            torch_dtype=torch.float16,        # Adjust if needed
+            torch_dtype=torch.float16,
             device_map="auto" if torch.cuda.is_available() else None,
             cache_dir="./cache"
         ).to(app_configs["device"])
@@ -322,181 +324,70 @@ def explanation_get_pretrained_model():
     return explanation_tokenizer, explanation_model
 
 ##############################################################################
-# Classification + Explanation (Short)
+# Classification + Explanation
 ##############################################################################
-def classify_with_explanation(
-    text: str,
-    tokenizer,
-    classifier_model,
-    preprocessor,
-    explanation_tokenizer,
-    explanation_model
-):
-    """
-    1) Preprocess & classify => 'AI generated' or 'Human generated'
-    2) Call generate_explanation(...) which returns a SINGLE string
-       containing both explanations.
-    3) Return (prediction, combined_explanation)
-    """
+def classify_with_explanation(text, tokenizer, classifier_model, preprocessor, explanation_tokenizer, explanation_model):
     print("[DEBUG] classify_with_explanation called...")
 
-    # Preprocessing
+    # (1) Preprocess
     input_ids, attention_mask = preprocessor.preprocess(text)
     input_ids = input_ids.unsqueeze(0).to(app_configs["device"])
     attention_mask = attention_mask.unsqueeze(0).to(app_configs["device"])
 
-    # Classification
+    # (2) Classify
     with torch.no_grad():
         logits = classifier_model(input_ids, attention_mask)
-    pred_score = torch.sigmoid(logits).item()
-    prediction = "AI generated" if pred_score > 0.5 else "Human generated"
-    print(f"[DEBUG] Classification => {prediction}, score={pred_score:.4f}")
+        pred_score = logits.squeeze().item()  # Ensure it's a scalar
+        p_ai = pred_score
+        p_human = 1.0 - p_ai
+        label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
 
-    # Explanation: a single string containing two labeled explanations
+    print(f"[DEBUG] Raw logits: {logits.cpu().numpy()}")
+    print(f"[DEBUG] Sigmoid output: {pred_score:.4f}")
+    print(f"[DEBUG] Final classification: {label_str}")
+
+    # (3) Explanation (Mistral)
     if explanation_model is not None:
         combined_explanation = generate_explanation(
-            text, 
-            prediction, 
-            explanation_tokenizer, 
-            explanation_model
+            text, label_str, explanation_tokenizer, explanation_model
         )
     else:
         combined_explanation = "No explanation model available."
 
-    # (Optional) log to file
-    with open("classification_results.txt", "a", encoding="utf-8") as f:
-        f.write("=== Classification + Explanations ===\n")
-        f.write(f"Text:\n{text}\n\n")
-        f.write(f"Prediction: {prediction}\n\n")
-        f.write("Combined Explanation:\n")
-        f.write(f"{combined_explanation}\n\n---\n")
-
-    # Return both the classification label + the entire explanation text
-    return prediction, combined_explanation
+    # (4) Return
+    return label_str, combined_explanation
 
 ##############################################################################
-# Fast(er) SHAP/LIME Explanation
+# SHAP / LIME Utility
 ##############################################################################
-
-# Set this to True if you suspect MPS issues with SHAP/LIME.
-# This will force CPU for the shap + lime steps.
 force_shap_cpu = False
 
 def predict_proba_for_explanations(texts, model, tokenizer, device):
     """
-    Return [p(Human), p(AI)] for each text in 'texts'.
-    We reuse the classification model but just get probabilities for each snippet.
+    Return [p(Human), p(AI)] for each text in texts.
     """
     model.eval()
-    probs = []
+    all_probs = []
     for txt in texts:
         inputs = tokenizer(
             txt,
             padding="max_length",
             truncation=True,
-            max_length=100,  # Reduced for speed
+            max_length=100,
             return_tensors="pt"
         ).to(device)
         with torch.no_grad():
             logits = model(inputs["input_ids"], inputs["attention_mask"])
             p_ai = torch.sigmoid(logits).item()
             p_human = 1.0 - p_ai
-        probs.append([p_human, p_ai])
-    return np.array(probs)
-
-
-def pos_filter_tokenize(text):
-    """
-    Tokenize text and keep only certain parts of speech (nouns, verbs, adjectives).
-    Remove punctuation & stopwords.
-    """
-    tokens = word_tokenize(text)
-    tagged = pos_tag(tokens)
-    keep_pos_prefixes = ("NN", "VB", "JJ")
-
-    sw = set(stopwords.words("english"))
-    punctuation_set = set(string.punctuation)
-
-    filtered = []
-    for (word, pos) in tagged:
-        if any(pos.startswith(pref) for pref in keep_pos_prefixes):
-            # Also remove stopwords and punctuation
-            if (word.lower() not in sw) and (word not in punctuation_set):
-                filtered.append(word)
-    return filtered
-
-
-def pos_filter_text(text, max_tokens=50):
-    """Return a 'cleaned' string by re-joining the POS-filtered tokens."""
-    tokens = pos_filter_tokenize(text)
-    tokens = tokens[:max_tokens]
-    return " ".join(tokens)
-
-
-def shap_explanation(model, tokenizer, device, text_sample):
-    """
-    1) Convert raw text -> POS-filtered text
-    2) Create shap_values with reduced computations (algorithm='permutation', max_evals=200)
-    3) Save text-based explanation => shap_text_explanation.html
-    4) Save bar chart => shap_bar.png
-    """
-    try:
-        cleaned_text = pos_filter_text(text_sample)
-
-        # If we suspect MPS issues, or want to ensure no GPU overhead:
-        # Move model to CPU for the SHAP call only.
-        original_device = device
-        if force_shap_cpu:
-            model_cpu = model.to("cpu")
-            use_device = torch.device("cpu")
-        else:
-            model_cpu = model
-            use_device = original_device
-
-        text_masker = shap.maskers.Text()
-        explainer = shap.Explainer(
-            lambda T: predict_proba_for_explanations(T, model_cpu, tokenizer, use_device),
-            masker=text_masker,
-            algorithm="partition"
-        )
-
-        # Limit the number of evaluations
-        shap_values = explainer([cleaned_text], max_evals=600)
-
-        # If we forced CPU, move model back
-        if force_shap_cpu:
-            model.to(original_device)
-
-        # A) SHAP text highlight => HTML string
-        shap_text_html = shap.plots.text(shap_values[0], display=False)
-        with open("shap_text_explanation.html", "w", encoding="utf-8") as f:
-            f.write(shap_text_html)
-        print("[INFO] SHAP text explanation saved to shap_text_explanation.html")
-
-        # B) SHAP bar chart => shap_bar.png
-        fig = plt.figure()
-        shap.plots.bar(shap_values[0][:, 1], show=False)
-        plt.title("SHAP Bar Chart (AI class)")
-        plt.savefig("shap_bar.png", dpi=200, bbox_inches='tight')
-        plt.close(fig)
-        print("[INFO] SHAP bar chart saved to shap_bar.png")
-
-        return shap_values[0], shap_text_html, "shap_bar.png"
-
-    except Exception as e:
-        print("[ERROR] SHAP explanation error:", e)
-        raise e
-
+        all_probs.append([p_human, p_ai])
+    return np.array(all_probs)
 
 def lime_explanation(model, tokenizer, device, text_sample):
     """
-    LIME Explanation on POS-filtered text.
-    Returns => (lime_exp_object, 'lime_explanation.png')
+    LIME on the full text => color-coded bar chart + text.
     """
     try:
-        cleaned_text = pos_filter_text(text_sample)
-
-        # If we suspect device issues for LIME:
         original_device = device
         if force_shap_cpu:
             model_cpu = model.to("cpu")
@@ -510,277 +401,166 @@ def lime_explanation(model, tokenizer, device, text_sample):
 
         explainer = LimeTextExplainer(class_names=["Human", "AI"])
         exp = explainer.explain_instance(
-            cleaned_text,
+            text_sample,
             classifier_fn=lime_predict,
-            labels=[1],
-            num_features=5,
-            num_samples=200  # drastically reduced from default
+            labels=[1],    # label=1 => "AI"
+            num_features=15,
+            num_samples=200
         )
 
-        # Move back if forced CPU
         if force_shap_cpu:
             model.to(original_device)
 
-        fig = exp.as_pyplot_figure(label=1)
-        plt.title("LIME Explanation (AI class) - POS Filtered")
-        fig.savefig("lime_explanation.png", dpi=200, bbox_inches='tight')
-        plt.close(fig)
-        print("[INFO] LIME explanation saved to lime_explanation.png")
-
-        return exp, "lime_explanation.png"
+        return exp.as_html(labels=[1])
 
     except Exception as e:
         print("[ERROR] LIME explanation error:", e)
         raise e
 
-
-def generate_natural_language_summary(
-    text_sample,
-    shap_values_for_text,
-    lime_exp_for_text,
-    top_n=5,
-    classification_banner=""
-):
+def generate_natural_language_explanation(lime_exp):
     """
-    Summarize top tokens from SHAP & LIME in plain English, plus classification results at the top.
+    Generates a natural language summary using LIME's top features.
     """
-    # Extract token-level SHAP contributions for AI class => shap_values_for_text.values[:, 1]
-    token_contribs = []
-    for i, token in enumerate(shap_values_for_text.data):
-        shap_ai = shap_values_for_text.values[i, 1]
-        token_contribs.append((token, shap_ai))
+    if not isinstance(lime_exp.predict_proba, np.ndarray) or lime_exp.predict_proba.ndim < 2:
+        print("[ERROR] LIME predict_proba returned an invalid format:", lime_exp.predict_proba)
+        return "**Error: LIME explanation could not be generated.**"
+    
+    try:
+        predicted_class = "AI-generated" if lime_exp.predict_proba[0][1] > 0.5 else "Human-written"
+    except IndexError as e:
+        print(f"[ERROR] IndexError in predict_proba: {e}, Value: {lime_exp.predict_proba}")
+        return "**Error: LIME explanation encountered an issue.**"
 
-    # Sort by absolute contribution
-    token_contribs.sort(key=lambda x: abs(x[1]), reverse=True)
+    features = lime_exp.as_list(label=1)
 
-    # Top positive => push toward AI
-    top_positive = [t for t in token_contribs if t[1] > 0]
-    top_positive.sort(key=lambda x: x[1], reverse=True)
-    top_positive = top_positive[:top_n]
+    # Separate features contributing to AI/Human
+    pro_ai = [(f, w) for f, w in features if w > 0][:3]  # Top 3 AI features
+    pro_human = [(f, w) for f, w in features if w < 0][:3]  # Top 3 Human features
 
-    # Top negative => push toward Human
-    top_negative = [t for t in token_contribs if t[1] < 0]
-    top_negative.sort(key=lambda x: x[1])
-    top_negative = top_negative[:top_n]
-
-    # LIME results
-    lime_list = lime_exp_for_text.as_list(label=1)
-    lime_list.sort(key=lambda x: abs(x[1]), reverse=True)
-    lime_top = lime_list[:top_n]
-
-    lines = []
-    if classification_banner:
-        lines.append(classification_banner)
-
-    lines.append("====================================================")
-    lines.append("                    EXPLANATION SUMMARY")
-    lines.append("====================================================\n")
-
-    # SHAP tokens - positive
-    if top_positive:
-        tokens_only = [tok for (tok, _) in top_positive]
-        lines.append(
-            "Based on SHAP, the words that pushed the classification toward 'AI-generated' are: "
-            f"{', '.join(tokens_only)}."
-        )
+    summary = f"**Classification:** {predicted_class}\n\n"
+    if predicted_class == "AI-generated":
+        summary += "Key factors indicating AI-generated content:\n"
+        for feat, weight in pro_ai:
+            summary += f"- Presence of '{feat}' (contribution: +{weight:.2f})\n"
     else:
-        lines.append("No words strongly pushing toward AI according to SHAP.")
+        summary += "Key factors indicating Human-written content:\n"
+        for feat, weight in pro_human:
+            summary += f"- Presence of '{feat}' (contribution: {weight:.2f})\n"
+    
+    return summary
 
-    lines.append("")
+##############################################################################
+# Combine Classification + LIME => final_report.html
+##############################################################################
 
-    # SHAP tokens - negative
-    if top_negative:
-        tokens_only = [tok for (tok, _) in top_negative]
-        lines.append(
-            "The words pushing the classification toward 'Human-written' are: "
-            f"{', '.join(tokens_only)}."
-        )
-    else:
-        lines.append("No words strongly pushing toward Human according to SHAP.")
-
-    lines.append("")
-
-    # LIME perspective
-    if lime_top:
-        lime_pos = [tok for (tok, w) in lime_top if w > 0]
-        lime_neg = [tok for (tok, w) in lime_top if w < 0]
-        lines.append("From the LIME perspective:")
-        if lime_pos:
-            lines.append(f"- {', '.join(lime_pos)} also push the classifier toward 'AI'.")
-        if lime_neg:
-            lines.append(f"- {', '.join(lime_neg)} push the classifier toward 'Human'.")
-    else:
-        lines.append("LIME didn't find any strong features to push the text to AI or Human.")
-
-    lines.append("\nIn summary, these keywords gave the model important cues.\n")
-    return "\n".join(lines)
-
-
-def embed_image_base64(img_path):
+def get_strong_lime_words(lime_exp, top_n=5):
     """
-    Read an image (PNG) from img_path, convert to base64,
-    and return an <img> tag embedding it inline.
+    Extract the top N strongest words from the LIME explanation.
+    Avoids stopwords, punctuation, and ensures meaningful words are kept.
     """
-    with open(img_path, "rb") as f:
-        img_data = f.read()
-    encoded = base64.b64encode(img_data).decode("utf-8")
-    return f"<img src='data:image/png;base64,{encoded}' style='max-width:600px;'/>"
+    stop_words = set(stopwords.words("english")) | set(string.punctuation)
 
+    # Extract LIME words and their weights
+    lime_words = [(word, weight) for word, weight in lime_exp.as_list(label=1)]
+
+    # Sort words by absolute weight (importance)
+    lime_words.sort(key=lambda x: abs(x[1]), reverse=True)
+
+    print(f"[DEBUG] LIME Extracted Words (Before Filtering): {lime_words}")  # Debugging
+
+    # Filter words: Remove stopwords, short words, and weak features
+    strong_lime_words = [
+        (word, weight) for word, weight in lime_words
+        if word.lower() not in stop_words and len(word) > 2 and abs(weight) > 0.005  # Loosen threshold
+    ]
+
+    print(f"[DEBUG] LIME Strong Words (After Filtering): {strong_lime_words}")  # Debugging
+
+    # If filtering removed too many words, fall back to just the top N words
+    if len(strong_lime_words) < top_n:
+        print(f"[WARNING] Less than {top_n} strong words found. Showing top available words.")
+        strong_lime_words = lime_words[:top_n]  # Take the top N regardless of filtering
+
+    # Take only the top N words
+    return strong_lime_words[:top_n]
 
 def classify_and_explain(user_text, model, tokenizer, device):
     """
-    1) Classify user_text
-    2) Run SHAP & LIME with reduced complexity
-    3) Generate a combined HTML report (final_report.html) with black text
+    Classifies the input text and generates a LIME explanation.
+    Extracts the strongest words from LIME and displays them properly.
     """
-    # === 1) Classification ===
-    inputs = tokenizer(
-        user_text,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=100  # reduced for speed
-    ).to(device)
-
-    model.eval()
+    # (1) Classification
+    inputs = tokenizer(user_text, return_tensors="pt", padding=True, truncation=True, max_length=100).to(device)
     with torch.no_grad():
         logits = model(inputs["input_ids"], inputs["attention_mask"])
         p_ai = torch.sigmoid(logits).item()
-    p_human = 1 - p_ai
-    label_str = "AI" if p_ai > 0.5 else "Human"
+    p_human = 1.0 - p_ai
+    label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
+    print(f"[DEBUG] Predicted label: {label_str}, p_ai={p_ai:.3f}, p_human={p_human:.3f}")
+
+    # (2) Define LIME Prediction Function
+    def lime_predict(txts):
+        probs = predict_proba_for_explanations(txts, model, tokenizer, device)
+        print("[DEBUG] LIME predict probs:", probs)
+        
+        # Ensure it is always 2D with shape (N, 2)
+        if isinstance(probs, list):
+            probs = np.array(probs)
+
+        if probs.ndim == 1:  # If it's a 1D array, reshape it
+            probs = probs.reshape(-1, 2)
+
+        return probs
+
+    # (3) Run LIME Explanation
+    explainer = LimeTextExplainer(class_names=["Human", "AI"])
+    lime_exp = explainer.explain_instance(
+        user_text,
+        classifier_fn=lime_predict,
+        labels=[1],
+        num_features=15,  # Generate more words initially
+        num_samples=500  # More samples = better accuracy
+    )
+
+    # (4) Extract the strongest words
+    strong_lime_words = get_strong_lime_words(lime_exp, top_n=5)
+
+    # (5) Build the Strongest Words HTML
+    strong_lime_html = "<h3>Strongest Words in LIME Explanation</h3><ul>"
+    for word, weight in strong_lime_words:
+        strong_lime_html += f"<li><strong>{word}</strong> (Influence: {weight:.3f})</li>"
+    strong_lime_html += "</ul>"
+
+    # (6) Classification Summary
     classification_banner = (
-        f"=== CLASSIFICATION RESULT ===<br>"
-        f"Predicted label: {label_str}<br>"
-        f"Prob(AI)={p_ai:.3f}, Prob(Human)={p_human:.3f}<br><br>"
-    )
-    print(classification_banner.replace("<br>", "\n"))  # console display
-
-    # === 2) SHAP Explanation ===
-    shap_vals, shap_text_html, shap_bar_png = shap_explanation(
-        model, tokenizer, device, user_text
+        f"<b>Predicted Label:</b> {label_str}<br>"
+        f"<b>Prob(AI) = {p_ai:.3f}, Prob(Human) = {p_human:.3f}</b>"
     )
 
-    # === 3) LIME Explanation ===
-    lime_exp, lime_png = lime_explanation(
-        model, tokenizer, device, user_text
-    )
-
-    # === 4) Explanation Summary (Plain text)
-    explanation_report = generate_natural_language_summary(
-        text_sample=user_text,
-        shap_values_for_text=shap_vals,
-        lime_exp_for_text=lime_exp,
-        top_n=5,
-        classification_banner=""
-    )
-    print(explanation_report)
-
-    # === 5) Build Final HTML Report ===
-    shap_bar_img_tag = embed_image_base64(shap_bar_png)
-    lime_img_tag     = embed_image_base64(lime_png)
-
-    # Wrap the SHAP text HTML in .force-black for black text
+    # (7) Build the Final Report
     final_html = f"""
 <html>
 <head>
-    <meta charset="utf-8"/>
-    <title>Classification & Explanation Report</title>
-    <style>
-      body {{
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        color: #000 !important; /* Force black text for body */
-      }}
-      .banner {{
-        background-color: #f0f0f0;
-        padding: 10px;
-        margin-bottom: 20px;
-      }}
-      .section {{
-        margin-bottom: 30px;
-      }}
-      h2 {{
-        color: #444;
-      }}
-      .explanation-summary {{
-        white-space: pre-wrap;
-        background: #f9f9f9;
-        padding: 10px;
-      }}
-      img {{
-        display: block;
-        margin: 10px 0;
-        max-width: 600px;
-      }}
-
-      /* Force all text (and fills) inside .force-black to be black */
-      .force-black, .force-black * {{
-        color: #000 !important;
-        fill: #000 !important;
-      }}
-
-      /* Basic modal styling */
-      .modal-overlay {{
-        display: none; /* hidden by default */
-        position: fixed; 
-        top: 0; 
-        left: 0; 
-        width: 100%; 
-        height: 100%;
-        background: rgba(0,0,0,0.5);
-        z-index: 9999;
-      }}
-      .modal-content {{
-        background: #fff;
-        padding: 20px;
-        margin: 100px auto;
-        width: 80%;
-        max-width: 800px;
-        position: relative;
-      }}
-      .close-btn {{
-        position: absolute;
-        top: 10px; 
-        right: 10px;
-        cursor: pointer;
-        font-weight: bold;
-      }}
-    </style>
+  <title>Classification Report</title>
 </head>
 <body>
-
-<div class="banner force-black">
   <h2>Classification Result</h2>
   <p>{classification_banner}</p>
-</div>
 
-<div class="section force-black">
-  <h2>SHAP Explanation (Text Highlight)</h2>
-  {shap_text_html}
-</div>
+  <h3>LIME Explanation</h3>
+  {strong_lime_html}
 
-<div class="section force-black">
-  <h2>SHAP Bar Chart</h2>
-  {shap_bar_img_tag}
-</div>
-
-<div class="section force-black">
-  <h2>LIME Explanation</h2>
-  {lime_img_tag}
-</div>
-
-<div class="section explanation-summary force-black">
-  <h2>Explanation Summary</h2>
-  <div>{explanation_report}</div>
-</div>
-
+  <h3>Original LIME Visualization</h3>
+  {lime_exp.as_html(labels=[1])}
+  
 </body>
 </html>
-"""
+    """
 
-    with open("final_report.html", "w", encoding="utf-8") as f:
+    # (8) Save Report to File
+    with open("final_report.html", "w") as f:
         f.write(final_html)
-    print("[INFO] Wrote combined explanation to final_report.html")
+    print("[INFO] Report generated with meaningful LIME explanation.")
 
 ##############################################################################
 # Flask App
@@ -788,21 +568,21 @@ def classify_and_explain(user_text, model, tokenizer, device):
 app = Flask(__name__)
 CORS(app)
 
-# 1) Select device
+# 1) Device
 device = target_device()
 
-# 2) (Optional) Hugging Face login
-# login_to_huggingface()  # Uncomment if you need HF private model access
+# 2) (Optional) HF login
+# login_to_huggingface()  # Uncomment if needed
 
-# 3) Load classification model & tokenizer
-print("[DEBUG] Loading classification model ...")
+# 3) Load classification model
+print("[DEBUG] Loading classification model...")
 tokenizer, classifier_model = classification_get_pretrained_model()
 
-# 4) Create Preprocessor for classification
+# 4) Preprocessor
 preprocessor = PreprocessDataset(tokenizer)
 
-# 5) Load the explanation model & tokenizer
-print("[DEBUG] Loading explanation model ...")
+# 5) Explanation model (Mistral)
+print("[DEBUG] Loading explanation model...")
 explanation_tokenizer, explanation_model = explanation_get_pretrained_model()
 
 ##############################################################################
@@ -810,14 +590,19 @@ explanation_tokenizer, explanation_model = explanation_get_pretrained_model()
 ##############################################################################
 @app.route("/api/classify", methods=["POST"])
 def classify_text():
-    data = request.json or {}
-    text = data.get("text", "")
+    """
+    Classify text & generate 2 short explanations from Mistral.
+    """
+    data = request.get_json()
+    if not data or "text" not in data:
+        return jsonify({"error": "Invalid JSON or missing 'text' field"}), 400
+    
+    text = data["text"].strip()
     if not text:
-        return jsonify({"error": "No text provided."}), 400
+        return jsonify({"error": "Empty text provided"}), 400
 
     try:
-        # Returns (prediction, explanation)
-        prediction, explanation = classify_with_explanation(
+        pred, explanation = classify_with_explanation(
             text=text,
             tokenizer=tokenizer,
             classifier_model=classifier_model,
@@ -826,45 +611,84 @@ def classify_text():
             explanation_model=explanation_model
         )
         return jsonify({
-            "prediction": prediction,
+            "prediction": pred,
             "explanation": explanation
         }), 200
     except Exception as e:
         return jsonify({"error": f"Error: {str(e)}"}), 500
 
-@app.route("/api/shap_html", methods=["GET"])
-def serve_shap_html():
-    shap_html_path = os.path.join(os.getcwd(), "shap_text_explanation.html")
-    return send_file(shap_html_path, mimetype="text/html")
-
 @app.route("/api/explain", methods=["POST"])
 def explain_text():
-    """
-    Full classification + SHAP/LIME visualization, 
-    returns an HTML report (final_report.html).
-    """
-    try:
-        data = request.json or {}
-        user_text = data.get("text", "")
-        if not user_text:
-            return jsonify({"error": "Text input is required."}), 400
-
-        # Classification + SHAP+LIME explanation
-        classify_and_explain(user_text, classifier_model, tokenizer, device)
-
-        # Return final report
-        report_path = os.path.join(os.getcwd(), "final_report.html")
-        if os.path.exists(report_path):
-            return send_file(report_path, mimetype="text/html")
-        else:
-            return jsonify({"error": "Failed to generate explanation report."}), 500
-
-    except Exception as e:
-        # Now you see the REAL reason it failed:
-        return jsonify({"error": f"SHAP + LIME explanation error: {str(e)}"}), 500
+    data = request.json
+    text = data.get("text", "")
+    if not text:
+        return jsonify({"error": "Text required"}), 400
+    
+    classify_and_explain(text, classifier_model, tokenizer, device)
+    return send_file("final_report.html", mimetype="text/html")
 
 ##############################################################################
-# Main Entrypoint
+# (NEW) LIME Explanation Route (Bar Chart + color-coded text)
+##############################################################################
+@app.route("/api/lime_explanation", methods=["POST"])
+def lime_explanation_route():
+    """
+    Returns a LIME-only HTML page with the classic bar chart on the left 
+    and color-highlighted text on the right, exactly like your screenshot.
+    """
+    data = request.json or {}
+    text = data.get("text", "")
+    if not text:
+        return jsonify({"error": "No text provided."}), 400
+
+    # 1) Classify
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True).to(device)
+    with torch.no_grad():
+        logits = classifier_model(inputs["input_ids"], inputs["attention_mask"])
+        p_ai = torch.sigmoid(logits).item()
+    p_human = 1 - p_ai
+    label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
+
+    # 2) LIME Explanation
+    def lime_predict(txts):
+        return predict_proba_for_explanations(txts, classifier_model, tokenizer, device)
+
+    explainer = LimeTextExplainer(class_names=["Human-written","AI-generated"])
+    exp = explainer.explain_instance(
+        text,
+        classifier_fn=lime_predict,
+        labels=[1],           # label=1 => "AI-generated"
+        num_features=20,      # show more "meaningful" words
+        num_samples=500       # can tweak for speed/accuracy
+    )
+    lime_html = exp.as_html(labels=[1])
+
+    # 3) Build final HTML
+    final_html = f"""
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>LIME Explanation Demo</title>
+</head>
+<body style="font-family:Arial, sans-serif;">
+  <h1>Classification Result</h1>
+  <p><b>Text Classification:</b> {label_str}</p>
+  <p>Prob(Human)={p_human:.2f}, Prob(AI)={p_ai:.2f}</p>
+
+  <h2>LIME Explanation Report</h2>
+  {lime_html}
+
+  <hr/>
+  <p style="color:#666;">If you do not see the bar chart or highlights, your environment 
+  may be blocking inline JavaScript. Try saving this HTML to a file and 
+  opening it in a standard desktop browser.</p>
+</body>
+</html>
+"""
+    return final_html, 200
+
+##############################################################################
+# MAIN
 ##############################################################################
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)

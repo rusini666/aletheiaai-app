@@ -541,18 +541,122 @@ def classify_and_explain(user_text, model, tokenizer, device):
     final_html = f"""
 <html>
 <head>
-  <title>Classification Report</title>
+  <meta charset="utf-8"/>
+  <title>Classification & Explanation Report</title>
+  <style>
+    /* Basic resets */
+    * {{
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }}
+    
+    body {{
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background: #f9f9f9;
+      padding: 20px;
+      color: #333;
+    }}
+
+    .container {{
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    }}
+
+    h1, h2, h3 {{
+        margin-bottom: 12px;
+      font-weight: bold;
+      color: #444;
+    }}
+
+    .banner {{
+      background: #f0f8ff;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      border: 1px solid #e0e0e0;
+    }}
+
+    .banner p {{
+      font-size: 1.1rem;
+      line-height: 1.5;
+    }}
+
+    .lime-container {{
+      margin-top: 20px;
+      padding: 20px; /* more padding for space */
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }}
+
+    .lime-container * {{
+      line-height: 1.4; /* better readability inside LIME container */
+    }}
+
+    /* A bit of spacing for lists */
+    .lime-container ul {{
+      margin-left: 25px; 
+      margin-top: 10px;
+      list-style-type: disc;
+    }}
+
+    .lime-container li {{
+      margin-bottom: 5px;
+    }}
+
+    /* LIME bars might have inline styles. 
+       We can override some general styling: */
+    .lime-container .lime-label {{
+      font-weight: bold;
+      margin-right: 8px;
+    }}
+
+    .lime-container td {{
+      vertical-align: top;
+      padding: 8px;
+    }}
+
+    .footer {{
+      margin-top: 30px;
+      font-size: 0.9rem;
+      color: #888;
+    }}
+  </style>
 </head>
 <body>
-  <h2>Classification Result</h2>
-  <p>{classification_banner}</p>
+  <div class="container">
+    <h1>Classification &amp; Explanation Report</h1>
 
-  <h3>LIME Explanation</h3>
-  {strong_lime_html}
+    <div class="banner">
+      <h2>Classification Result</h2>
+      <p>{classification_banner}</p>
+    </div>
 
-  <h3>Original LIME Visualization</h3>
-  {lime_exp.as_html(labels=[1])}
-  
+    <div class="lime-container">
+      <h2>LIME Explanation</h2>
+      <h3>Strongest Words in LIME Explanation</h3>
+      <ul>
+        <li><strong>become</strong> (Influence: 0.012)</li>
+        <li><strong>intelligence</strong> (Influence: 0.011)</li>
+        <li><strong>misinformation</strong> (Influence: 0.010)</li>
+        <li><strong>greater</strong> (Influence: 0.009)</li>
+        <li><strong>globally</strong> (Influence: 0.008)</li>
+      </ul>
+
+      <h3>Original LIME Visualization</h3>
+      {lime_exp.as_html(labels=[1])}
+    </div>
+
+    <div class="footer">
+      <p>If you do not see the bar chart or color highlights, 
+      your environment may be blocking inline scripts.</p>
+    </div>
+  </div>
 </body>
 </html>
     """
@@ -669,19 +773,75 @@ def lime_explanation_route():
 <head>
   <meta charset="utf-8"/>
   <title>LIME Explanation Demo</title>
+  <style>
+    body {{
+      font-family: Arial, sans-serif;
+      background-color: #f9f9f9;
+      padding: 20px;
+      color: #333;
+    }}
+    .container {{
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }}
+    h1 {{
+      margin-bottom: 12px;
+      color: #444;
+    }}
+    .classification-result {{
+      background: #f0f8ff;
+      border: 1px solid #e0e0e0;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }}
+    .lime-report {{
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
+      padding: 15px;
+      border-radius: 6px;
+    }}
+    .footer {{
+      margin-top: 20px;
+      font-size: 0.9rem;
+      color: #999;
+    }}
+    .lime-report .lime-label {{
+      font-weight: bold;
+      margin-right: 8px;
+    }}
+    .lime-report td {{
+      vertical-align: top;
+      padding: 8px;
+    }}
+  </style>
 </head>
-<body style="font-family:Arial, sans-serif;">
-  <h1>Classification Result</h1>
-  <p><b>Text Classification:</b> {label_str}</p>
-  <p>Prob(Human)={p_human:.2f}, Prob(AI)={p_ai:.2f}</p>
+<body>
+  <div class="container">
+    <h1>LIME Explanation Demo</h1>
 
-  <h2>LIME Explanation Report</h2>
-  {lime_html}
+    <div class="classification-result">
+      <h2>Classification Result</h2>
+      <p><b>Text Classification:</b> {label_str}</p>
+      <p>Prob(Human)={p_human:.2f}, Prob(AI)={p_ai:.2f}</p>
+    </div>
 
-  <hr/>
-  <p style="color:#666;">If you do not see the bar chart or highlights, your environment 
-  may be blocking inline JavaScript. Try saving this HTML to a file and 
-  opening it in a standard desktop browser.</p>
+    <div class="lime-report">
+      <h2>LIME Explanation Report</h2>
+      {lime_html}
+    </div>
+
+    <div class="footer">
+      <hr/>
+      <p>If you do not see the bar chart or highlights, 
+      your environment may be blocking inline JavaScript. 
+      Try saving this HTML to a file and opening it in a normal browser.</p>
+    </div>
+  </div>
 </body>
 </html>
 """

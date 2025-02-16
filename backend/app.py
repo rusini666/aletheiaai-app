@@ -278,10 +278,10 @@ Do not restate the text verbatim.
         outputs = explanation_model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            max_new_tokens=256,
-            temperature=0.0,  
-            top_k=1,         
-            do_sample=False, 
+            max_new_tokens=1024,  # or even 50
+            temperature=0.7,    
+            top_k=50,          
+            do_sample=True,    
             pad_token_id=explanation_tokenizer.pad_token_id
         )
         raw_text = explanation_tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -323,38 +323,52 @@ def explanation_get_pretrained_model():
 
     return explanation_tokenizer, explanation_model
 
+def predict_ai_probability(text, preprocessor, classifier_model, device):
+    """
+    Preprocess the text, run the classifier, and return the probability
+    that the text is AI-generated (or human).
+    """
+    # 1) Preprocess
+    input_ids, attention_mask = preprocessor.preprocess(text)
+    input_ids = input_ids.unsqueeze(0).to(device)
+    attention_mask = attention_mask.unsqueeze(0).to(device)
+
+    # 2) Classify
+    with torch.no_grad():
+        logits = classifier_model(input_ids, attention_mask)
+        # logits is shape (1, 1) because your classifier returns a single sigmoid
+        p_ai = logits.squeeze().item()  # Probability of AI
+        # p_human = 1.0 - p_ai  # If you need it
+
+    return p_ai
+
 ##############################################################################
 # Classification + Explanation
 ##############################################################################
-def classify_with_explanation(text, tokenizer, classifier_model, preprocessor, explanation_tokenizer, explanation_model):
+def classify_with_explanation(text, classifier_model, preprocessor, explanation_tokenizer, explanation_model):
     print("[DEBUG] classify_with_explanation called...")
 
-    # (1) Preprocess
-    input_ids, attention_mask = preprocessor.preprocess(text)
-    input_ids = input_ids.unsqueeze(0).to(app_configs["device"])
-    attention_mask = attention_mask.unsqueeze(0).to(app_configs["device"])
+    # (1) Probability of AI
+    p_ai = predict_ai_probability(text, preprocessor, classifier_model, app_configs["device"])
+    p_human = 1.0 - p_ai
+    label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
 
-    # (2) Classify
-    with torch.no_grad():
-        logits = classifier_model(input_ids, attention_mask)
-        pred_score = logits.squeeze().item()  # Ensure it's a scalar
-        p_ai = pred_score
-        p_human = 1.0 - p_ai
-        label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
-
-    print(f"[DEBUG] Raw logits: {logits.cpu().numpy()}")
-    print(f"[DEBUG] Sigmoid output: {pred_score:.4f}")
+    print(f"[DEBUG] p_ai = {p_ai:.4f}, p_human = {p_human:.4f}")
     print(f"[DEBUG] Final classification: {label_str}")
 
-    # (3) Explanation (Mistral)
+    # (2) Generate explanation if explanation_model is available
     if explanation_model is not None:
+        # For example, your custom 'generate_explanation' with Mistral
         combined_explanation = generate_explanation(
-            text, label_str, explanation_tokenizer, explanation_model
+            text, 
+            label_str, 
+            explanation_tokenizer, 
+            explanation_model
         )
     else:
         combined_explanation = "No explanation model available."
 
-    # (4) Return
+    # (3) Return
     return label_str, combined_explanation
 
 ##############################################################################
@@ -417,38 +431,6 @@ def lime_explanation(model, tokenizer, device, text_sample):
         print("[ERROR] LIME explanation error:", e)
         raise e
 
-def generate_natural_language_explanation(lime_exp):
-    """
-    Generates a natural language summary using LIME's top features.
-    """
-    if not isinstance(lime_exp.predict_proba, np.ndarray) or lime_exp.predict_proba.ndim < 2:
-        print("[ERROR] LIME predict_proba returned an invalid format:", lime_exp.predict_proba)
-        return "**Error: LIME explanation could not be generated.**"
-    
-    try:
-        predicted_class = "AI-generated" if lime_exp.predict_proba[0][1] > 0.5 else "Human-written"
-    except IndexError as e:
-        print(f"[ERROR] IndexError in predict_proba: {e}, Value: {lime_exp.predict_proba}")
-        return "**Error: LIME explanation encountered an issue.**"
-
-    features = lime_exp.as_list(label=1)
-
-    # Separate features contributing to AI/Human
-    pro_ai = [(f, w) for f, w in features if w > 0][:3]  # Top 3 AI features
-    pro_human = [(f, w) for f, w in features if w < 0][:3]  # Top 3 Human features
-
-    summary = f"**Classification:** {predicted_class}\n\n"
-    if predicted_class == "AI-generated":
-        summary += "Key factors indicating AI-generated content:\n"
-        for feat, weight in pro_ai:
-            summary += f"- Presence of '{feat}' (contribution: +{weight:.2f})\n"
-    else:
-        summary += "Key factors indicating Human-written content:\n"
-        for feat, weight in pro_human:
-            summary += f"- Presence of '{feat}' (contribution: {weight:.2f})\n"
-    
-    return summary
-
 ##############################################################################
 # Combine Classification + LIME => final_report.html
 ##############################################################################
@@ -465,23 +447,23 @@ def get_strong_lime_words(lime_exp, top_n=5):
 
     # Sort words by absolute weight (importance)
     lime_words.sort(key=lambda x: abs(x[1]), reverse=True)
+    print(f"[DEBUG] LIME Extracted Words (Before Filtering): {lime_words}")
 
-    print(f"[DEBUG] LIME Extracted Words (Before Filtering): {lime_words}")  # Debugging
-
-    # Filter words: Remove stopwords, short words, and weak features
+    # Filter words: remove stopwords, punctuation, short words, and very weak contributions
     strong_lime_words = [
         (word, weight) for word, weight in lime_words
-        if word.lower() not in stop_words and len(word) > 2 and abs(weight) > 0.005  # Loosen threshold
+        if word.lower() not in stop_words
+           and len(word) > 2
+           and abs(weight) > 0.005
     ]
+    print(f"[DEBUG] LIME Strong Words (After Filtering): {strong_lime_words}")
 
-    print(f"[DEBUG] LIME Strong Words (After Filtering): {strong_lime_words}")  # Debugging
-
-    # If filtering removed too many words, fall back to just the top N words
+    # If filtering removes too many words, take the top N regardless
     if len(strong_lime_words) < top_n:
         print(f"[WARNING] Less than {top_n} strong words found. Showing top available words.")
-        strong_lime_words = lime_words[:top_n]  # Take the top N regardless of filtering
+        strong_lime_words = lime_words[:top_n]
 
-    # Take only the top N words
+    # Return only the top N (after filtering, or fallback above)
     return strong_lime_words[:top_n]
 
 def classify_and_explain(user_text, model, tokenizer, device):
@@ -489,11 +471,8 @@ def classify_and_explain(user_text, model, tokenizer, device):
     Classifies the input text and generates a LIME explanation.
     Extracts the strongest words from LIME and displays them properly.
     """
-    # (1) Classification
-    inputs = tokenizer(user_text, return_tensors="pt", padding=True, truncation=True, max_length=100).to(device)
-    with torch.no_grad():
-        logits = model(inputs["input_ids"], inputs["attention_mask"])
-        p_ai = torch.sigmoid(logits).item()
+    # ========== (1) Classification (Shared Logic) ==========
+    p_ai = predict_ai_probability(user_text, preprocessor, model, device)
     p_human = 1.0 - p_ai
     label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
     print(f"[DEBUG] Predicted label: {label_str}, p_ai={p_ai:.3f}, p_human={p_human:.3f}")
@@ -639,14 +618,8 @@ def classify_and_explain(user_text, model, tokenizer, device):
 
     <div class="lime-container">
       <h2>LIME Explanation</h2>
-      <h3>Strongest Words in LIME Explanation</h3>
-      <ul>
-        <li><strong>become</strong> (Influence: 0.012)</li>
-        <li><strong>intelligence</strong> (Influence: 0.011)</li>
-        <li><strong>misinformation</strong> (Influence: 0.010)</li>
-        <li><strong>greater</strong> (Influence: 0.009)</li>
-        <li><strong>globally</strong> (Influence: 0.008)</li>
-      </ul>
+      {strong_lime_html}
+
 
       <h3>Original LIME Visualization</h3>
       {lime_exp.as_html(labels=[1])}
@@ -847,7 +820,7 @@ def lime_explanation_route():
 """
     return final_html, 200
 
-##############################################################################
+#############################################################################
 # MAIN
 ##############################################################################
 if __name__ == "__main__":

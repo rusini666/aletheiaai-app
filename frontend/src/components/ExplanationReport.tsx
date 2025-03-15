@@ -1,7 +1,4 @@
-// In your route config:
-// <Route path="/explanation-report" element={<ExplanationReport />} />
-
-// Then the component:
+// ExplanationReport.tsx
 import React from "react";
 import { useLocation } from "react-router-dom";
 
@@ -10,10 +7,16 @@ const ExplanationReport: React.FC = () => {
   const { htmlContent } = location.state || {};
 
   return (
-    <iframe
-      srcDoc={htmlContent}
-      style={{ width: "100%", height: "100vh", border: "none" }}
-    />
+    // Just use a normal container
+    <div className="w-full p-0 m-0 bg-white">
+      <iframe
+        srcDoc={htmlContent}
+        title="SHAP-LIME-Report"
+        data-testid="explanation-iframe"
+        // Let the iframe height auto-adjust or set a min height
+        className="w-full min-h-screen border-none bg-white"
+      />
+    </div>
   );
 };
 

@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import axios from "axios";
@@ -88,3 +87,4 @@ describe("TextProcessor Integration Tests", () => {
     ).toBeInTheDocument();
   });
 });
+

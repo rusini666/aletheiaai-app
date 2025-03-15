@@ -1,4 +1,4 @@
-import React from "react";
+import "@testing-library/jest-dom";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import SmartExplanationPage from "../pages/SmartExplanationPage";
@@ -42,3 +42,4 @@ describe("SmartExplanationPage Tests", () => {
     expect(screen.getByText("Explanation #1 missing")).toBeInTheDocument();
   });
 });
+

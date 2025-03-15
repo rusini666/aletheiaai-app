@@ -31,4 +31,6 @@ def test_classify_valid_text():
     data = response.json()
     assert "prediction" in data
     assert "explanation" in data
-    assert data["prediction"] in ["Human-written", "AI-generated"]    
+    assert data["prediction"] in ["Human-written", "AI-generated"]   
+    
+     

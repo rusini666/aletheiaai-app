@@ -157,21 +157,20 @@ class CustomOPTClassifier(nn.Module):
         # The base model => (batch_size, seq_len, vocab_size)
         opt_logits = self.opt(input_ids=input_ids, attention_mask=attention_mask).logits
 
-        # OPTION 1: Using last token's logits (your current approach)
-        last_token_logits = opt_logits[:, -1, :]
+        # OPTION 1: Using last token's logits (original approach)
+        # last_token_logits = opt_logits[:, -1, :]
 
-        # OPTION 2: Pooling over all tokens (might be better)
+        # OPTION 2: Pooling over all tokens (often better)
         pooled_logits = opt_logits.mean(dim=1)  # Average over all tokens
 
         # Pass through classifier head
-        x = self.fc1(pooled_logits)  # <- Change here if using pooled_logits
+        x = self.fc1(pooled_logits)
         x = self.relu(x)
         x = self.fc2(x)
 
         end_forward = time.time()
         print(f"[DEBUG] Forward pass completed in {end_forward - start_forward:.2f}s")
         return torch.sigmoid(x)
-
 
 ##############################################################################
 # Load Pretrained Model for Classification
@@ -274,11 +273,11 @@ Do not restate the text verbatim.
             padding=True
         ).to(app_configs["device"])
 
-        # For faster generation, reduce max_new_tokens
+        # For faster generation, reduce max_new_tokens if desired
         outputs = explanation_model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            max_new_tokens=1024,  # or even 50
+            max_new_tokens=1024,
             temperature=0.7,    
             top_k=50,          
             do_sample=True,    
@@ -328,27 +327,23 @@ def predict_ai_probability(text, preprocessor, classifier_model, device):
     Preprocess the text, run the classifier, and return the probability
     that the text is AI-generated (or human).
     """
-    # 1) Preprocess
     input_ids, attention_mask = preprocessor.preprocess(text)
     input_ids = input_ids.unsqueeze(0).to(device)
     attention_mask = attention_mask.unsqueeze(0).to(device)
 
-    # 2) Classify
     with torch.no_grad():
         logits = classifier_model(input_ids, attention_mask)
-        # logits is shape (1, 1) because your classifier returns a single sigmoid
         p_ai = logits.squeeze().item()  # Probability of AI
-        # p_human = 1.0 - p_ai  # If you need it
 
     return p_ai
 
 ##############################################################################
 # Classification + Explanation
 ##############################################################################
-def classify_with_explanation(text, classifier_model, preprocessor, explanation_tokenizer, explanation_model):
+def classify_with_explanation(text, tokenizer, classifier_model, preprocessor,
+                              explanation_tokenizer, explanation_model):
     print("[DEBUG] classify_with_explanation called...")
 
-    # (1) Probability of AI
     p_ai = predict_ai_probability(text, preprocessor, classifier_model, app_configs["device"])
     p_human = 1.0 - p_ai
     label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
@@ -356,9 +351,8 @@ def classify_with_explanation(text, classifier_model, preprocessor, explanation_
     print(f"[DEBUG] p_ai = {p_ai:.4f}, p_human = {p_human:.4f}")
     print(f"[DEBUG] Final classification: {label_str}")
 
-    # (2) Generate explanation if explanation_model is available
+    # Generate free-text explanation via Mistral or fallback
     if explanation_model is not None:
-        # For example, your custom 'generate_explanation' with Mistral
         combined_explanation = generate_explanation(
             text, 
             label_str, 
@@ -368,7 +362,6 @@ def classify_with_explanation(text, classifier_model, preprocessor, explanation_
     else:
         combined_explanation = "No explanation model available."
 
-    # (3) Return
     return label_str, combined_explanation
 
 ##############################################################################
@@ -434,89 +427,66 @@ def lime_explanation(model, tokenizer, device, text_sample):
 ##############################################################################
 # Combine Classification + LIME => final_report.html
 ##############################################################################
-
 def get_strong_lime_words(lime_exp, top_n=5):
     """
     Extract the top N strongest words from the LIME explanation.
-    Avoids stopwords, punctuation, and ensures meaningful words are kept.
+    Avoids stopwords, punctuation, and ensures meaningful words.
     """
     stop_words = set(stopwords.words("english")) | set(string.punctuation)
 
-    # Extract LIME words and their weights
     lime_words = [(word, weight) for word, weight in lime_exp.as_list(label=1)]
-
-    # Sort words by absolute weight (importance)
     lime_words.sort(key=lambda x: abs(x[1]), reverse=True)
     print(f"[DEBUG] LIME Extracted Words (Before Filtering): {lime_words}")
 
-    # Filter words: remove stopwords, punctuation, short words, and very weak contributions
     strong_lime_words = [
         (word, weight) for word, weight in lime_words
-        if word.lower() not in stop_words
-           and len(word) > 2
-           and abs(weight) > 0.005
+        if (word.lower() not in stop_words) 
+           and (len(word) > 2)
+           and (abs(weight) > 0.005)
     ]
     print(f"[DEBUG] LIME Strong Words (After Filtering): {strong_lime_words}")
 
-    # If filtering removes too many words, take the top N regardless
     if len(strong_lime_words) < top_n:
         print(f"[WARNING] Less than {top_n} strong words found. Showing top available words.")
         strong_lime_words = lime_words[:top_n]
 
-    # Return only the top N (after filtering, or fallback above)
     return strong_lime_words[:top_n]
 
 def classify_and_explain(user_text, model, tokenizer, device):
     """
-    Classifies the input text and generates a LIME explanation.
-    Extracts the strongest words from LIME and displays them properly.
+    Classifies the input text and generates a LIME explanation,
+    then saves an HTML report.
     """
-    # ========== (1) Classification (Shared Logic) ==========
     p_ai = predict_ai_probability(user_text, preprocessor, model, device)
     p_human = 1.0 - p_ai
     label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
     print(f"[DEBUG] Predicted label: {label_str}, p_ai={p_ai:.3f}, p_human={p_human:.3f}")
 
-    # (2) Define LIME Prediction Function
+    # LIME explanation
     def lime_predict(txts):
         probs = predict_proba_for_explanations(txts, model, tokenizer, device)
-        print("[DEBUG] LIME predict probs:", probs)
-        
-        # Ensure it is always 2D with shape (N, 2)
-        if isinstance(probs, list):
-            probs = np.array(probs)
-
-        if probs.ndim == 1:  # If it's a 1D array, reshape it
-            probs = probs.reshape(-1, 2)
-
         return probs
 
-    # (3) Run LIME Explanation
     explainer = LimeTextExplainer(class_names=["Human", "AI"])
     lime_exp = explainer.explain_instance(
         user_text,
         classifier_fn=lime_predict,
         labels=[1],
-        num_features=15,  # Generate more words initially
-        num_samples=500  # More samples = better accuracy
+        num_features=15,
+        num_samples=500
     )
 
-    # (4) Extract the strongest words
     strong_lime_words = get_strong_lime_words(lime_exp, top_n=5)
-
-    # (5) Build the Strongest Words HTML
     strong_lime_html = "<h3>Strongest Words in LIME Explanation</h3><ul>"
     for word, weight in strong_lime_words:
         strong_lime_html += f"<li><strong>{word}</strong> (Influence: {weight:.3f})</li>"
     strong_lime_html += "</ul>"
 
-    # (6) Classification Summary
     classification_banner = (
         f"<b>Predicted Label:</b> {label_str}<br>"
         f"<b>Prob(AI) = {p_ai:.3f}, Prob(Human) = {p_human:.3f}</b>"
     )
 
-    # (7) Build the Final Report
     final_html = f"""
 <html>
 <head>
@@ -567,17 +537,16 @@ def classify_and_explain(user_text, model, tokenizer, device):
 
     .lime-container {{
       margin-top: 20px;
-      padding: 20px; /* more padding for space */
+      padding: 20px;
       background: #fafafa;
       border: 1px solid #e0e0e0;
       border-radius: 4px;
     }}
 
     .lime-container * {{
-      line-height: 1.4; /* better readability inside LIME container */
+      line-height: 1.4;
     }}
 
-    /* A bit of spacing for lists */
     .lime-container ul {{
       margin-left: 25px; 
       margin-top: 10px;
@@ -588,8 +557,6 @@ def classify_and_explain(user_text, model, tokenizer, device):
       margin-bottom: 5px;
     }}
 
-    /* LIME bars might have inline styles. 
-       We can override some general styling: */
     .lime-container .lime-label {{
       font-weight: bold;
       margin-right: 8px;
@@ -620,7 +587,6 @@ def classify_and_explain(user_text, model, tokenizer, device):
       <h2>LIME Explanation</h2>
       {strong_lime_html}
 
-
       <h3>Original LIME Visualization</h3>
       {lime_exp.as_html(labels=[1])}
     </div>
@@ -634,13 +600,175 @@ def classify_and_explain(user_text, model, tokenizer, device):
 </html>
     """
 
-    # (8) Save Report to File
     with open("final_report.html", "w") as f:
         f.write(final_html)
     print("[INFO] Report generated with meaningful LIME explanation.")
 
+# ---------------------------------------------------------------------------
+# -- New SHAP helper functions
+# ---------------------------------------------------------------------------
+def shap_explanation(text, model, tokenizer, device, background_samples=None):
+    """
+    Generate SHAP KernelExplainer for a single text and return (shap_values, tokens).
+    """
+    if background_samples is None:
+        # Some small baseline texts
+        background_samples = [
+            "This is a sample sentence.",
+            "It contains some typical words.",
+            "We use this for baseline reference."
+        ]
+
+    def shap_predict(texts):
+        # Return [p(Human), p(AI)] for each text
+        return predict_proba_for_explanations(texts, model, tokenizer, device)
+
+    explainer = shap.KernelExplainer(shap_predict, background_samples)
+    # Evaluate shap_values for a single input
+    shap_values = explainer.shap_values([text], nsamples=100)  # can adjust nsamples
+    # Tokenize text
+    tokens = tokenizer.tokenize(text)
+    return shap_values, tokens
+
+def shap_summary_human_readable(shap_values, tokens, top_n=5):
+    """
+    Create a plain-English summary from the SHAP values for class "AI".
+    """
+    # shap_values is a list [class0_values, class1_values]
+    ai_shap = shap_values[1].flatten()
+    token_shap_pairs = list(zip(tokens, ai_shap))
+
+    # Sort by absolute contribution
+    token_shap_pairs.sort(key=lambda x: abs(x[1]), reverse=True)
+    top_contributors = token_shap_pairs[:top_n]
+
+    pushes_ai = [(tok, val) for (tok, val) in top_contributors if val > 0]
+    pushes_human = [(tok, val) for (tok, val) in top_contributors if val < 0]
+
+    lines = []
+    if pushes_ai:
+        lines.append("Tokens pushing classification towards AI:")
+        for (tok, val) in pushes_ai:
+            lines.append(f"  - {tok} (influence={val:.3f})")
+    if pushes_human:
+        lines.append("Tokens pushing classification towards Human:")
+        for (tok, val) in pushes_human:
+            lines.append(f"  - {tok} (influence={val:.3f})")
+
+    if not pushes_ai and not pushes_human:
+        lines.append("No strong tokens found (all near zero).")
+
+    return "\n".join(lines)
+
+def lime_get_top_tokens(lime_exp, top_n=10):
+    """
+    Parse the LIME explanation object to get top tokens for AI label=1
+    as (token, weight).
+    """
+    all_tokens = lime_exp.as_list(label=1)  # e.g. [("word", weight), ...]
+    # Sort by absolute weight
+    all_tokens.sort(key=lambda x: abs(x[1]), reverse=True)
+    return all_tokens[:top_n]
+
+def shap_get_top_tokens(shap_values, tokens, top_n=10):
+    """
+    From the shap_values for AI (index=1), return top (token, shap_value).
+    """
+    ai_shap = shap_values[1].flatten()
+    pairs = list(zip(tokens, ai_shap))
+    pairs.sort(key=lambda x: abs(x[1]), reverse=True)
+    return pairs[:top_n]
+
+def combine_explanations(lime_tokens, shap_tokens, top_n=5):
+    """
+    Merge LIME and SHAP tokens into a combined importance list.
+    Return list of (token, combined_score, lime_score, shap_score).
+    """
+    lime_dict = {t[0]: t[1] for t in lime_tokens}  # token -> weight
+    shap_dict = {t[0]: t[1] for t in shap_tokens}  # token -> shap_val
+    combined_set = set(lime_dict.keys()) | set(shap_dict.keys())
+
+    combined_list = []
+    for token in combined_set:
+        l_score = lime_dict.get(token, 0)
+        s_score = shap_dict.get(token, 0)
+        combined_score = abs(l_score) + abs(s_score)
+        combined_list.append((token, combined_score, l_score, s_score))
+
+    # Sort by combined_score desc
+    combined_list.sort(key=lambda x: x[1], reverse=True)
+    return combined_list[:top_n]
+
+# ---------------------------------------------------------------------------
+# -- Combined LIME + SHAP Route
+# ---------------------------------------------------------------------------
+@app.route("/api/combined_explanation", methods=["POST"])
+def combined_explanation_route():
+    """
+    Runs both LIME and SHAP on the input text, merges top tokens,
+    and returns a simple non-technical explanation.
+    """
+    data = request.json or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "No text provided."}), 400
+
+    # 1) Classify + get probabilities
+    p_ai = predict_ai_probability(text, preprocessor, classifier_model, app_configs["device"])
+    p_human = 1.0 - p_ai
+    label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
+
+    # 2) LIME Explanation
+    def lime_predict(txts):
+        return predict_proba_for_explanations(txts, classifier_model, tokenizer, app_configs["device"])
+
+    lime_explainer = LimeTextExplainer(class_names=["Human", "AI"])
+    lime_exp = lime_explainer.explain_instance(
+        text,
+        classifier_fn=lime_predict,
+        labels=[1],
+        num_features=15,
+        num_samples=300
+    )
+    lime_top = lime_get_top_tokens(lime_exp, top_n=10)
+
+    # 3) SHAP Explanation
+    shap_vals, shap_tokens = shap_explanation(
+        text=text,
+        model=classifier_model,
+        tokenizer=tokenizer,
+        device=app_configs["device"]
+    )
+    shap_top = shap_get_top_tokens(shap_vals, shap_tokens, top_n=10)
+
+    # 4) Combine them
+    combined_top = combine_explanations(lime_top, shap_top, top_n=5)
+
+    # 5) Create a user-friendly bullet list
+    bullets = []
+    for (token, cscore, lscore, sscore) in combined_top:
+        direction = "AI" if (lscore + sscore) > 0 else "Human"
+        bullets.append(f"- *{token}* pushes classification towards **{direction}** (combined importance={cscore:.3f})")
+
+    # 6) Optional short summary at the top
+    summary_text = (
+        f"This text is predicted as **{label_str}** "
+        f"(Prob(AI)={p_ai:.2f}, Prob(Human)={p_human:.2f}).\n\n"
+        "Below are tokens that both LIME and SHAP found most influential:\n"
+    )
+    bullet_points = "\n".join(bullets)
+
+    # Return as JSON or as an HTML snippet
+    response = {
+        "classification": label_str,
+        "prob_ai": p_ai,
+        "prob_human": p_human,
+        "combined_explanation": summary_text + bullet_points
+    }
+    return jsonify(response), 200
+
 ##############################################################################
-# Flask App
+# Flask App Initialization
 ##############################################################################
 app = Flask(__name__)
 CORS(app)
@@ -663,7 +791,7 @@ print("[DEBUG] Loading explanation model...")
 explanation_tokenizer, explanation_model = explanation_get_pretrained_model()
 
 ##############################################################################
-# Flask Routes
+# Flask Routes (Existing)
 ##############################################################################
 @app.route("/api/classify", methods=["POST"])
 def classify_text():
@@ -704,14 +832,11 @@ def explain_text():
     classify_and_explain(text, classifier_model, tokenizer, device)
     return send_file("final_report.html", mimetype="text/html")
 
-##############################################################################
-# (NEW) LIME Explanation Route (Bar Chart + color-coded text)
-##############################################################################
 @app.route("/api/lime_explanation", methods=["POST"])
 def lime_explanation_route():
     """
     Returns a LIME-only HTML page with the classic bar chart on the left 
-    and color-highlighted text on the right, exactly like your screenshot.
+    and color-highlighted text on the right.
     """
     data = request.json or {}
     text = data.get("text", "")
@@ -735,8 +860,8 @@ def lime_explanation_route():
         text,
         classifier_fn=lime_predict,
         labels=[1],           # label=1 => "AI-generated"
-        num_features=20,      # show more "meaningful" words
-        num_samples=500       # can tweak for speed/accuracy
+        num_features=20,
+        num_samples=500
     )
     lime_html = exp.as_html(labels=[1])
 

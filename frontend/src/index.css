@@ -38,8 +38,9 @@ nav {
    - No overflow here → the browser's default vertical scrollbar will handle it */
 main {
   flex-grow: 1;
-  margin-top: 4rem;  /* Adjust to navbar’s height so content isn’t hidden */
-  /* No forced overflow here. Let the browser handle vertical scroll for the page. */
+  padding-top: 5rem; /* Increase from 4rem to account for navbar plus any additional spacing */
+  background: linear-gradient(to bottom right, #eef2ff, #ffffff, #ebf4ff); /* Match the gradient background */
+  min-height: calc(100vh - 4rem); /* Ensure it fills the viewport minus navbar */
 }
 
 /* Footer is normal block at the bottom (not fixed) */

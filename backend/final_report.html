@@ -12,79 +12,168 @@
     }
     
     body {
-      font-family: 'Helvetica Neue', Arial, sans-serif;
-      background: #f9f9f9;
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(to bottom right, #eef2ff, #ffffff, #ebf4ff);
       padding: 20px;
       color: #333;
+      min-height: 100vh;
     }
 
     .container {
       max-width: 900px;
       margin: 0 auto;
       background: #fff;
-      padding: 20px 30px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.1);
     }
 
     h1, h2, h3 {
-        margin-bottom: 12px;
+      margin-bottom: 16px;
       font-weight: bold;
-      color: #444;
+      color: #4338ca; /* indigo-700 */
+    }
+
+    h1 {
+      font-size: 28px;
+      text-align: center;
+      margin-bottom: 24px;
+      background: linear-gradient(90deg, #4338ca, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h2 {
+      font-size: 22px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+      margin-top: 28px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin-top: 20px;
+      color: #4f46e5; /* indigo-600 */
     }
 
     .banner {
-      background: #f0f8ff;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-      border: 1px solid #e0e0e0;
+      background: #f5f7ff;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      border: 1px solid #e0e7ff; /* indigo-100 */
     }
 
     .banner p {
       font-size: 1.1rem;
-      line-height: 1.5;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+
+    .prediction-label {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: white;
+    }
+    
+    .prediction-ai {
+      background: linear-gradient(90deg, #4f46e5, #4338ca);
+    }
+    
+    .prediction-human {
+      background: linear-gradient(90deg, #047857, #065f46);
+    }
+
+    .probability-bar {
+      display: flex;
+      height: 30px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 15px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .probability-ai {
+      background: linear-gradient(90deg, #818cf8, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .probability-human {
+      background: linear-gradient(90deg, #34d399, #10b981);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
     }
 
     .lime-container {
-      margin-top: 20px;
-      padding: 20px; /* more padding for space */
-      background: #fafafa;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
+      margin-top: 24px;
+      padding: 24px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
     }
 
     .lime-container * {
-      line-height: 1.4; /* better readability inside LIME container */
+      line-height: 1.5;
     }
 
-    /* A bit of spacing for lists */
     .lime-container ul {
       margin-left: 25px; 
-      margin-top: 10px;
+      margin-top: 12px;
       list-style-type: disc;
     }
 
     .lime-container li {
-      margin-bottom: 5px;
+      margin-bottom: 8px;
+      font-size: 15px;
     }
 
-    /* LIME bars might have inline styles. 
-       We can override some general styling: */
+    .strong-word {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+      background: #e0e7ff; /* indigo-100 */
+      margin-right: 4px;
+    }
+
+    .influence-positive {
+      color: #4338ca; /* indigo-700 */
+    }
+
+    .influence-negative {
+      color: #b91c1c; /* red-700 */
+    }
+
     .lime-container .lime-label {
-      font-weight: bold;
+      font-weight: 600;
       margin-right: 8px;
     }
 
     .lime-container td {
       vertical-align: top;
-      padding: 8px;
+      padding: 10px;
     }
 
     .footer {
-      margin-top: 30px;
+      margin-top: 36px;
+      text-align: center;
       font-size: 0.9rem;
-      color: #888;
+      color: #6b7280;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
     }
   </style>
 </head>
@@ -94,13 +183,26 @@
 
     <div class="banner">
       <h2>Classification Result</h2>
-      <p><b>Predicted Label:</b> AI-generated<br><b>Prob(AI) = 0.856, Prob(Human) = 0.144</b></p>
+      <div class="prediction-label prediction-human">
+        Human-written
+      </div>
+      
+      <div class="probability-bar">
+        <div class="probability-human" style="width: 77.0%;">
+          Human: 77.0%
+        </div>
+        <div class="probability-ai" style="width: 23.0%;">
+          AI: 23.0%
+        </div>
+      </div>
     </div>
 
     <div class="lime-container">
-      <h2>LIME Explanation</h2>
-      <h3>Strongest Words in LIME Explanation</h3><ul><li><strong>necessitating</strong> (Influence: 0.021)</li><li><strong>many</strong> (Influence: 0.016)</li><li><strong>insomnia</strong> (Influence: 0.015)</li><li><strong>reliance</strong> (Influence: 0.015)</li><li><strong>moderation</strong> (Influence: 0.007)</li></ul>
-
+      <h2>Key Insights</h2>
+      <h3>Strongest Words in Analysis</h3>
+      <ul>
+        <li><span class="strong-word">heatwaves</span> <span class="influence-positive">Influence: 0.031</span></li> <li><span class="strong-word">One</span> <span class="influence-positive">Influence: 0.025</span></li> <li><span class="strong-word">identified</span> <span class="influence-positive">Influence: 0.020</span></li> <li><span class="strong-word">using</span> <span class="influence-positive">Influence: 0.020</span></li> <li><span class="strong-word">Marine</span> <span class="influence-positive">Influence: 0.019</span></li>
+      </ul>
 
       <h3>Original LIME Visualization</h3>
       <html>
@@ -37194,35 +37296,33 @@
 /***/ })
 /******/ ]);
 //# sourceMappingURL=bundle.js.map </script></head><body>
-        <div class="lime top_div" id="top_divKLQ8CG4WW56ZQD9"></div>
+        <div class="lime top_div" id="top_divBUACN0NQQX4EV2C"></div>
         
         <script>
-        var top_div = d3.select('#top_divKLQ8CG4WW56ZQD9').classed('lime top_div', true);
+        var top_div = d3.select('#top_divBUACN0NQQX4EV2C').classed('lime top_div', true);
         
             var pp_div = top_div.append('div')
                                 .classed('lime predict_proba', true);
             var pp_svg = pp_div.append('svg').style('width', '100%');
-            var pp = new lime.PredictProba(pp_svg, ["Human", "AI"], [0.27196913957595825, 0.7280308604240417]);
+            var pp = new lime.PredictProba(pp_svg, ["Human", "AI"], [0.27628880739212036, 0.7237111926078796]);
             
         
         var exp_div;
             var exp = new lime.Explanation(["Human", "AI"]);
         
                 exp_div = top_div.append('div').classed('lime explanation', true);
-                exp.show([["of", 0.032965457504897], ["The", 0.03167689774468467], ["necessitating", 0.02064443251559317], ["for", 0.01928895393200738], ["many", 0.01617705554787559], ["insomnia", 0.01526571300275748], ["reliance", 0.014733696935393921], ["them", 0.012224463005875487], ["moderation", 0.007216042275225133], ["success", 0.006800177433676297], ["disrupt", 0.006453944416205676], ["develop", 0.00644710176192211], ["directly", 0.0060304546349880936], ["whose", 0.005387786756407469], ["cascade", 0.0004146552450921229]], 1, exp_div);
+                exp.show([["heatwaves", 0.031205050808648712], ["One", 0.025361194153037236], ["have", 0.02531000962023564], ["and", 0.022219149251721006], ["identified", 0.020356035574868557], ["using", 0.019933430450817115], ["Marine", 0.01851651002307775], ["several", 0.014763952654490318], ["the", 0.014697349877015977], ["EVT", -0.013243016456483687], ["climatological", 0.009366017694014662], ["strengths", 0.008639492198767832], ["at", 0.008136342567165432], ["extremes", -0.00510886681313906], ["intensity", -0.0029811118994085752]], 1, exp_div);
                 
         var raw_div = top_div.append('div');
-            exp.show_raw_text([["of", 23, 0.032965457504897], ["of", 108, 0.032965457504897], ["of", 188, 0.032965457504897], ["of", 327, 0.032965457504897], ["of", 391, 0.032965457504897], ["of", 582, 0.032965457504897], ["of", 603, 0.032965457504897], ["of", 771, 0.032965457504897], ["of", 787, 0.032965457504897], ["of", 818, 0.032965457504897], ["of", 1025, 0.032965457504897], ["of", 1166, 0.032965457504897], ["of", 1248, 0.032965457504897], ["of", 1338, 0.032965457504897], ["of", 1401, 0.032965457504897], ["of", 1564, 0.032965457504897], ["of", 1606, 0.032965457504897], ["of", 1885, 0.032965457504897], ["of", 2002, 0.032965457504897], ["of", 2080, 0.032965457504897], ["of", 2263, 0.032965457504897], ["of", 2379, 0.032965457504897], ["of", 2829, 0.032965457504897], ["of", 3021, 0.032965457504897], ["of", 3055, 0.032965457504897], ["of", 3173, 0.032965457504897], ["of", 3406, 0.032965457504897], ["of", 3469, 0.032965457504897], ["of", 3638, 0.032965457504897], ["of", 3767, 0.032965457504897], ["of", 3898, 0.032965457504897], ["The", 0, 0.03167689774468467], ["The", 718, 0.03167689774468467], ["The", 1016, 0.03167689774468467], ["The", 1719, 0.03167689774468467], ["The", 3132, 0.03167689774468467], ["necessitating", 125, 0.02064443251559317], ["for", 531, 0.01928895393200738], ["for", 636, 0.01928895393200738], ["for", 1798, 0.01928895393200738], ["for", 2209, 0.01928895393200738], ["for", 2486, 0.01928895393200738], ["for", 3146, 0.01928895393200738], ["for", 3215, 0.01928895393200738], ["for", 3276, 0.01928895393200738], ["many", 1169, 0.01617705554787559], ["insomnia", 877, 0.01526571300275748], ["reliance", 2035, 0.014733696935393921], ["them", 2142, 0.012224463005875487], ["moderation", 2968, 0.007216042275225133], ["moderation", 3099, 0.007216042275225133], ["success", 2499, 0.006800177433676297], ["disrupt", 1756, 0.006453944416205676], ["develop", 2175, 0.00644710176192211], ["directly", 1287, 0.0060304546349880936], ["whose", 938, 0.005387786756407469], ["cascade", 319, 0.0004146552450921229]], 1, "The pervasive presence of energy drinks in schools and colleges presents a serious threat to the well-being of young people, necessitating a comprehensive ban. While marketed as enhancers of academic performance and athletic prowess, these beverages are laden with excessive caffeine and other stimulants, leading to a cascade of negative health consequences that undermine the very purpose of educational institutions. Therefore, a ban on energy drinks within school and college environments is not only justifiable but essential for safeguarding the health and academic potential of students. \u00a0 \n\nOne of the most compelling arguments for banning energy drinks stems from their detrimental impact on physical health. The excessive caffeine content, often exceeding that of several cups of coffee, can lead to a range of adverse effects, including heart palpitations, anxiety, insomnia, and dehydration. For adolescents and young adults, whose bodies are still developing, these effects are particularly concerning. The risk of cardiac complications, especially among those with pre-existing conditions, is a significant concern. Furthermore, the high sugar content of many energy drinks contributes to dental decay, obesity, and an increased risk of type 2 diabetes. These health risks directly contradict the fundamental responsibility of educational institutions to promote the physical well-being of their students. \u00a0 \n\nBeyond the physical ramifications, energy drinks also negatively affect cognitive function and academic performance. While the initial jolt of caffeine may provide a temporary sense of alertness, this is often followed by a crash, leading to fatigue, irritability, and difficulty concentrating. The irregular energy spikes and dips disrupt sleep patterns, which are crucial for memory consolidation and learning. Chronic sleep deprivation, a common consequence of energy drink consumption, impairs cognitive abilities, reduces academic performance, and increases the likelihood of mood disorders. Moreover, the reliance on energy drinks can create a cycle of dependency, where students feel unable to function without them, hindering their ability to develop healthy coping mechanisms for stress and fatigue. \u00a0 \n\nFurthermore, the presence of energy drinks in schools and colleges normalizes their consumption among young people, contributing to a culture of unhealthy habits. Marketing campaigns often target adolescents, portraying these beverages as essential for academic success and athletic achievement. This creates a false impression that energy drinks are a safe and effective way to enhance performance, when in reality, they pose significant health risks. Educational institutions have a responsibility to counteract these misleading messages by providing accurate information about the dangers of energy drinks and promoting healthier alternatives. \u00a0 \n\nOpponents may argue that a ban infringes on students' personal choices and that moderation is the key. However, the addictive nature of caffeine and the vulnerability of young people to marketing pressures make moderation difficult to achieve. The potential for abuse and the severity of the health risks outweigh the argument for individual liberty. Schools and colleges are responsible for creating a safe and healthy environment conducive to learning, and this includes protecting students from the harmful effects of energy drinks. \u00a0 \n\nIn conclusion, the overwhelming evidence of the negative health and academic consequences associated with energy drink consumption necessitates a ban within schools and colleges. By prioritizing the well-being of students, educational institutions can create a healthier and more productive learning environment, fostering the development of lifelong healthy habits. A ban on energy drinks is not merely a restriction, but a necessary step towards protecting the future of our young people. \u00a0 \n", raw_div, true);
+            exp.show_raw_text([["heatwaves", 7, 0.031205050808648712], ["heatwaves", 2376, 0.031205050808648712], ["One", 105, 0.025361194153037236], ["have", 17, 0.02531000962023564], ["and", 88, 0.022219149251721006], ["and", 279, 0.022219149251721006], ["and", 348, 0.022219149251721006], ["and", 1009, 0.022219149251721006], ["and", 1114, 0.022219149251721006], ["and", 1180, 0.022219149251721006], ["and", 1286, 0.022219149251721006], ["and", 1345, 0.022219149251721006], ["and", 1964, 0.022219149251721006], ["and", 2008, 0.022219149251721006], ["and", 2068, 0.022219149251721006], ["and", 2296, 0.022219149251721006], ["identified", 27, 0.020356035574868557], ["using", 38, 0.019933430450817115], ["using", 203, 0.019933430450817115], ["using", 573, 0.019933430450817115], ["using", 1789, 0.019933430450817115], ["Marine", 0, 0.01851651002307775], ["several", 44, 0.014763952654490318], ["the", 112, 0.014697349877015977], ["the", 243, 0.014697349877015977], ["the", 474, 0.014697349877015977], ["the", 617, 0.014697349877015977], ["the", 654, 0.014697349877015977], ["the", 838, 0.014697349877015977], ["the", 1290, 0.014697349877015977], ["the", 1438, 0.014697349877015977], ["the", 1633, 0.014697349877015977], ["the", 1910, 0.014697349877015977], ["the", 1973, 0.014697349877015977], ["the", 1984, 0.014697349877015977], ["the", 1994, 0.014697349877015977], ["the", 2022, 0.014697349877015977], ["the", 2144, 0.014697349877015977], ["the", 2207, 0.014697349877015977], ["the", 2236, 0.014697349877015977], ["the", 2344, 0.014697349877015977], ["EVT", 163, -0.013243016456483687], ["EVT", 408, -0.013243016456483687], ["climatological", 2026, 0.009366017694014662], ["strengths", 78, 0.008639492198767832], ["at", 1605, 0.008136342567165432], ["extremes", 194, -0.00510886681313906], ["intensity", 1093, -0.0029811118994085752], ["intensity", 1129, -0.0029811118994085752]], 1, "Marine heatwaves have been identified using several approaches, each with its strengths and\nlimitations. One of the earlier methods involved extreme value theory (EVT), which models\ntemperature extremes using statistical distributions such as the generalized extreme value\n(GEV) and generalized pareto distribution (GPD) to estimate return periods and levels(\nLeadbetter et al., 1983; Coles, 2001). However, EVT has not been widely applied to study\ntemperature anomalies in the ocean (Oliver et al., 2014, Oliver et al., 2014).\nAnother refinement in MHW detection involves using higher percentile thresholds, such as\nthe 99th percentile, to isolate only the most extreme events. This approach helps in filtering\nout minor fluctuations but requires long-term datasets for accuracy (Fr\u00f6licher et al., 2018). A\nfurther improvement came with the categorization scheme developed by (Hobday et al.\n2018), which classifies heat waves into four severity levels, from moderate to extreme,\nallowing for better tracking and comparison of events. Finally, once an MHW is detected,\nvarious metrics such as intensity, duration, and cumulative intensity are used to quantify its\ncharacteristics and potential ecological impacts. The choice of method depends on research\nobjectives, data availability, and the specific application needed for understanding MHWs\nand their effects.\nTo address these, seasonally varying thresholds were introduced, allowing the baseline\ntemperature to adjust with seasonal variations, making it more effective across different\ntimeframes (Hobday et al., 2016). Mainly defined as a period of at least five days in which\nthe SST rises above a particular threshold is specifically referred to as an MHW event by\n(Hobday et al., 2016).The climatology (1) baseline is constructed using long-term data\ntypically spanning 30 years. The climatology, denoted as Tm(j) is calculated as follows, where\nT is the daily sea surface temperature on day d of year y, and j is the day of the year, the\nbeginning and ending of the climatological base period, denoted as ys and ye, respectively\n(Hobday et al., 2016). The threshold (2) which defines the marine heatwave is calculated as\nfollows which is based on the 90th percentile value of the baseline periods (Hobday et al.,\n2016). This definition and approach has been widely adapted in most of the research to\nidentify marine heatwaves.", raw_div, true);
             
         </script>
         </body></html>
     </div>
 
     <div class="footer">
-      <p>If you do not see the bar chart or color highlights, 
-      your environment may be blocking inline scripts.</p>
+      <p>AletheiaAI helps detect AI-generated content with user-centric explainability</p>
     </div>
   </div>
 </body>
 </html>
-    

@@ -14,8 +14,11 @@ const SmartExplanationPage: React.FC = () => {
 
   // fallback if user came directly
   const predictedLabel = stateData?.classificationResult?.prediction ?? "N/A";
-  const explanation =
-    stateData?.classificationResult?.explanation ?? "Explanation #1 missing";
+  const explanationText =
+    stateData?.classificationResult?.explanation ?? "Explanation missing";
+
+  // Split explanations for better display
+  const explanations = explanationText.split("\n\n");
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
@@ -32,13 +35,17 @@ const SmartExplanationPage: React.FC = () => {
           </p>
 
           <div className="space-y-6">
-            {/* Explanation */}
-            <div className="border rounded p-4">
-              <h2 className="text-lg text-black font-semibold mb-2">
-                Explanation
-              </h2>
-              <p className="text-gray-800 whitespace-pre-wrap">{explanation}</p>
-            </div>
+            {/* Explanations */}
+            {explanations.map((exp, i) => (
+              <div key={i} className="border rounded p-4">
+                <h2 className="text-lg text-black font-semibold mb-2">
+                  {exp.split(":\n")[0]}
+                </h2>
+                <p className="text-gray-800 whitespace-pre-wrap">
+                  {exp.split(":\n")[1] || exp}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       </div>

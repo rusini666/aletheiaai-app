@@ -531,79 +531,168 @@ def classify_and_explain(user_text, model, tokenizer, device):
     }}
     
     body {{
-      font-family: 'Helvetica Neue', Arial, sans-serif;
-      background: #f9f9f9;
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(to bottom right, #eef2ff, #ffffff, #ebf4ff);
       padding: 20px;
       color: #333;
+      min-height: 100vh;
     }}
 
     .container {{
       max-width: 900px;
       margin: 0 auto;
       background: #fff;
-      padding: 20px 30px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.1);
     }}
 
     h1, h2, h3 {{
-        margin-bottom: 12px;
+      margin-bottom: 16px;
       font-weight: bold;
-      color: #444;
+      color: #4338ca; /* indigo-700 */
+    }}
+
+    h1 {{
+      font-size: 28px;
+      text-align: center;
+      margin-bottom: 24px;
+      background: linear-gradient(90deg, #4338ca, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }}
+
+    h2 {{
+      font-size: 22px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+      margin-top: 28px;
+    }}
+
+    h3 {{
+      font-size: 18px;
+      margin-top: 20px;
+      color: #4f46e5; /* indigo-600 */
     }}
 
     .banner {{
-      background: #f0f8ff;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-      border: 1px solid #e0e0e0;
+      background: #f5f7ff;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      border: 1px solid #e0e7ff; /* indigo-100 */
     }}
 
     .banner p {{
       font-size: 1.1rem;
-      line-height: 1.5;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }}
+
+    .prediction-label {{
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: white;
+    }}
+    
+    .prediction-ai {{
+      background: linear-gradient(90deg, #4f46e5, #4338ca);
+    }}
+    
+    .prediction-human {{
+      background: linear-gradient(90deg, #047857, #065f46);
+    }}
+
+    .probability-bar {{
+      display: flex;
+      height: 30px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 15px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }}
+
+    .probability-ai {{
+      background: linear-gradient(90deg, #818cf8, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }}
+
+    .probability-human {{
+      background: linear-gradient(90deg, #34d399, #10b981);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
     }}
 
     .lime-container {{
-      margin-top: 20px;
-      padding: 20px; /* more padding for space */
-      background: #fafafa;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
+      margin-top: 24px;
+      padding: 24px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
     }}
 
     .lime-container * {{
-      line-height: 1.4; /* better readability inside LIME container */
+      line-height: 1.5;
     }}
 
-    /* A bit of spacing for lists */
     .lime-container ul {{
       margin-left: 25px; 
-      margin-top: 10px;
+      margin-top: 12px;
       list-style-type: disc;
     }}
 
     .lime-container li {{
-      margin-bottom: 5px;
+      margin-bottom: 8px;
+      font-size: 15px;
     }}
 
-    /* LIME bars might have inline styles. 
-       We can override some general styling: */
+    .strong-word {{
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+      background: #e0e7ff; /* indigo-100 */
+      margin-right: 4px;
+    }}
+
+    .influence-positive {{
+      color: #4338ca; /* indigo-700 */
+    }}
+
+    .influence-negative {{
+      color: #b91c1c; /* red-700 */
+    }}
+
     .lime-container .lime-label {{
-      font-weight: bold;
+      font-weight: 600;
       margin-right: 8px;
     }}
 
     .lime-container td {{
       vertical-align: top;
-      padding: 8px;
+      padding: 10px;
     }}
 
     .footer {{
-      margin-top: 30px;
+      margin-top: 36px;
+      text-align: center;
       font-size: 0.9rem;
-      color: #888;
+      color: #6b7280;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
     }}
   </style>
 </head>
@@ -613,26 +702,38 @@ def classify_and_explain(user_text, model, tokenizer, device):
 
     <div class="banner">
       <h2>Classification Result</h2>
-      <p>{classification_banner}</p>
+      <div class="prediction-label prediction-{label_str.lower().split('-')[0]}">
+        {label_str}
+      </div>
+      
+      <div class="probability-bar">
+        <div class="probability-human" style="width: {p_human*100:.1f}%;">
+          Human: {p_human*100:.1f}%
+        </div>
+        <div class="probability-ai" style="width: {p_ai*100:.1f}%;">
+          AI: {p_ai*100:.1f}%
+        </div>
+      </div>
     </div>
 
     <div class="lime-container">
-      <h2>LIME Explanation</h2>
-      {strong_lime_html}
-
+      <h2>Key Insights</h2>
+      <h3>Strongest Words in Analysis</h3>
+      <ul>
+        {' '.join([f'<li><span class="strong-word">{word}</span> <span class="influence-{"positive" if weight > 0 else "negative"}">Influence: {weight:.3f}</span></li>' for word, weight in strong_lime_words])}
+      </ul>
 
       <h3>Original LIME Visualization</h3>
       {lime_exp.as_html(labels=[1])}
     </div>
 
     <div class="footer">
-      <p>If you do not see the bar chart or color highlights, 
-      your environment may be blocking inline scripts.</p>
+      <p>AletheiaAI helps detect AI-generated content with user-centric explainability</p>
     </div>
   </div>
 </body>
 </html>
-    """
+"""
 
     # (8) Save Report to File
     with open("final_report.html", "w") as f:
@@ -679,19 +780,315 @@ def classify_text():
         return jsonify({"error": "Empty text provided"}), 400
 
     try:
-        pred, explanation = classify_with_explanation(
+        pred, raw_explanation = classify_with_explanation(
             text=text,
             classifier_model=classifier_model,
             preprocessor=preprocessor,
             explanation_tokenizer=explanation_tokenizer,
             explanation_model=explanation_model
         )
+        
+        # Parse the explanations to get clean versions
+        explanation1, explanation2 = parse_explanations(raw_explanation)
+        
+        # Format them nicely for the frontend
+        formatted_explanation = f"Explanation #1:\n{explanation1}\n\nExplanation #2:\n{explanation2}"
+        
         return jsonify({
             "prediction": pred,
-            "explanation": explanation
+            "explanation": formatted_explanation
         }), 200
     except Exception as e:
         return jsonify({"error": f"Error: {str(e)}"}), 500
+
+def parse_explanations(raw_explanation_text):
+    """
+    Parse the raw explanation text to extract just the explanations,
+    removing the prompt and other artifacts.
+    """
+    # Remove any instruction blocks that might be in the generated text
+    cleaned_text = re.sub(r'Each explanation should describe.*?verbatim\.', '', raw_explanation_text, flags=re.DOTALL)
+    
+    exp1 = ""
+    exp2 = ""
+    
+    # Extract Explanation #1
+    exp1_match = re.search(r"Explanation #1:(.*?)(?:Explanation #2:|$)", 
+                          cleaned_text, re.DOTALL)
+    if exp1_match:
+        exp1 = exp1_match.group(1).strip()
+    
+    # Extract Explanation #2
+    exp2_match = re.search(r"Explanation #2:(.*?)$", 
+                          cleaned_text, re.DOTALL)
+    if exp2_match:
+        exp2 = exp2_match.group(1).strip()
+    
+    # If parsing failed, use some fallbacks
+    if not exp1:
+        exp1 = "No explanation could be extracted."
+    if not exp2:
+        exp2 = "No second explanation could be extracted."
+        
+    return exp1, exp2
+
+@app.route("/api/smart_explanation_html", methods=["POST"])
+def smart_explanation_html():
+    """Return a beautiful HTML report with two explanations"""
+    data = request.json
+    text = data.get("text", "")
+    if not text:
+        return jsonify({"error": "Text required"}), 400
+        
+    print("[DEBUG] smart_explanation_html called...")
+
+    # (1) Probability of AI
+    p_ai = predict_ai_probability(text, preprocessor, classifier_model, app_configs["device"])
+    p_human = 1.0 - p_ai
+    label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
+
+    print(f"[DEBUG] p_ai = {p_ai:.4f}, p_human = {p_human:.4f}")
+    print(f"[DEBUG] Final classification: {label_str}")
+
+    # (2) Generate explanation if explanation_model is available
+    if explanation_model is not None:
+        # Generate explanations
+        raw_explanation = generate_explanation(
+            text, 
+            label_str, 
+            explanation_tokenizer, 
+            explanation_model
+        )
+        # Parse the explanations from the raw text
+        explanation1, explanation2 = parse_explanations(raw_explanation)
+    else:
+        explanation1 = "No explanation model available."
+        explanation2 = "No explanation model available."
+
+    # (3) Generate HTML report - COMPLETELY STRIPPED OF INSTRUCTION BOXES
+    label_class = "ai" if label_str.lower().startswith("ai") else "human"
+    
+    html_report = f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Smart AI Explanation</title>
+  <style>
+    * {{
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }}
+    
+    body {{
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(to bottom right, #eef2ff, #ffffff, #ebf4ff);
+      padding: 20px;
+      color: #333;
+      min-height: 100vh;
+    }}
+
+    .container {{
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.1);
+    }}
+
+    h1, h2, h3 {{
+      margin-bottom: 16px;
+      font-weight: bold;
+      color: #4338ca; /* indigo-700 */
+    }}
+
+    h1 {{
+      font-size: 28px;
+      text-align: center;
+      margin-bottom: 24px;
+      background: linear-gradient(90deg, #4338ca, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }}
+
+    h2 {{
+      font-size: 22px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+      margin-top: 28px;
+    }}
+
+    h3 {{
+      font-size: 18px;
+      margin-top: 20px;
+      color: #4f46e5; /* indigo-600 */
+    }}
+
+    .classification-result {{
+      background: #f5f7ff;
+      border: 1px solid #e0e7ff; /* indigo-100 */
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }}
+    
+    .prediction-label {{
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: white;
+    }}
+    
+    .prediction-ai {{
+      background: linear-gradient(90deg, #4f46e5, #4338ca);
+    }}
+    
+    .prediction-human {{
+      background: linear-gradient(90deg, #047857, #065f46);
+    }}
+
+    .probability-bar {{
+      display: flex;
+      height: 30px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 15px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }}
+
+    .probability-ai {{
+      background: linear-gradient(90deg, #818cf8, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }}
+
+    .probability-human {{
+      background: linear-gradient(90deg, #34d399, #10b981);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }}
+
+    .explanation-section {{
+      margin-top: 24px;
+      padding: 20px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }}
+
+    .explanation {{
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }}
+
+    .explanation h3 {{
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 16px;
+      color: #4f46e5;
+    }}
+
+    .explanation p {{
+      margin: 0;
+      line-height: 1.6;
+    }}
+
+    .footer {{
+      margin-top: 36px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #6b7280;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Smart AI Explanation</h1>
+
+    <div class="classification-result">
+      <h2>Classification Result</h2>
+      <div class="prediction-label prediction-{label_class}">
+        {label_str}
+      </div>
+      
+      <div class="probability-bar">
+        <div class="probability-human" style="width: {p_human*100:.1f}%;">
+          Human: {p_human*100:.1f}%
+        </div>
+        <div class="probability-ai" style="width: {p_ai*100:.1f}%;">
+          AI: {p_ai*100:.1f}%
+        </div>
+      </div>
+    </div>
+
+    <div class="explanation-section">
+      <h2>AI-Generated Explanations</h2>
+      
+      <div class="explanation">
+        <h3>Explanation #1</h3>
+        <p>{explanation1}</p>
+      </div>
+      
+      <div class="explanation">
+        <h3>Explanation #2</h3>
+        <p>{explanation2}</p>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>AletheiaAI helps detect AI-generated content with user-centric explainability</p>
+    </div>
+  </div>
+</body>
+</html>
+"""
+    return html_report, 200, {'Content-Type': 'text/html'}
+
+@app.route('/extract_pdf_text', methods=['POST'])
+def extract_pdf_text():
+    # Ensure a file was uploaded with the key 'file'
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    pdf_file = request.files['file']
+
+    try:
+        # Create a PdfReader object from the uploaded file
+        reader = PdfReader(pdf_file)
+        
+        # Extract text from each page
+        text_content = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_content.append(page_text)
+
+        extracted_text = "\n".join(text_content)
+        return jsonify({'text': extracted_text}), 200
+    except Exception as e:
+        # Log the error for debugging purposes
+        print(f"Error during PDF extraction: {e}")
+        return jsonify({'error': 'Failed to extract text from the PDF'}), 500
 
 @app.route("/api/explain", methods=["POST"])
 def explain_text():
@@ -744,74 +1141,164 @@ def lime_explanation_route():
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>LIME Explanation Demo</title>
+  <title>Detailed Insights Report</title>
   <style>
+    * {{
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }}
+    
     body {{
-      font-family: Arial, sans-serif;
-      background-color: #f9f9f9;
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(to bottom right, #eef2ff, #ffffff, #ebf4ff);
       padding: 20px;
       color: #333;
+      min-height: 100vh;
     }}
+
     .container {{
       max-width: 900px;
       margin: 0 auto;
       background: #fff;
-      padding: 20px 30px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.1);
     }}
-    h1 {{
-      margin-bottom: 12px;
-      color: #444;
-    }}
-    .classification-result {{
-      background: #f0f8ff;
-      border: 1px solid #e0e0e0;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-    }}
-    .lime-report {{
-      background: #fafafa;
-      border: 1px solid #e0e0e0;
-      padding: 15px;
-      border-radius: 6px;
-    }}
-    .footer {{
-      margin-top: 20px;
-      font-size: 0.9rem;
-      color: #999;
-    }}
-    .lime-report .lime-label {{
+
+    h1, h2, h3 {{
+      margin-bottom: 16px;
       font-weight: bold;
+      color: #4338ca; /* indigo-700 */
+    }}
+
+    h1 {{
+      font-size: 28px;
+      text-align: center;
+      margin-bottom: 24px;
+      background: linear-gradient(90deg, #4338ca, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }}
+
+    h2 {{
+      font-size: 22px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+      margin-top: 24px;
+    }}
+
+    .classification-result {{
+      background: #f5f7ff;
+      border: 1px solid #e0e7ff; /* indigo-100 */
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }}
+    
+    .prediction-label {{
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: white;
+    }}
+    
+    .prediction-ai {{
+      background: linear-gradient(90deg, #4f46e5, #4338ca);
+    }}
+    
+    .prediction-human {{
+      background: linear-gradient(90deg, #047857, #065f46);
+    }}
+
+    .probability-bar {{
+      display: flex;
+      height: 30px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 15px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }}
+
+    .probability-ai {{
+      background: linear-gradient(90deg, #818cf8, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }}
+
+    .probability-human {{
+      background: linear-gradient(90deg, #34d399, #10b981);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }}
+
+    .lime-report {{
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 24px;
+      border-radius: 8px;
+    }}
+
+    .lime-report .lime-label {{
+      font-weight: 600;
       margin-right: 8px;
     }}
+
     .lime-report td {{
       vertical-align: top;
-      padding: 8px;
+      padding: 10px;
+    }}
+
+    .footer {{
+      margin-top: 36px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #6b7280;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
     }}
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>LIME Explanation Demo</h1>
+    <h1>Detailed Insights Report</h1>
 
     <div class="classification-result">
       <h2>Classification Result</h2>
-      <p><b>Text Classification:</b> {label_str}</p>
-      <p>Prob(Human)={p_human:.2f}, Prob(AI)={p_ai:.2f}</p>
+      <div class="prediction-label prediction-{label_str.lower().split('-')[0]}">
+        {label_str}
+      </div>
+      
+      <div class="probability-bar">
+        <div class="probability-human" style="width: {p_human*100:.1f}%;">
+          Human: {p_human*100:.1f}%
+        </div>
+        <div class="probability-ai" style="width: {p_ai*100:.1f}%;">
+          AI: {p_ai*100:.1f}%
+        </div>
+      </div>
     </div>
 
     <div class="lime-report">
-      <h2>LIME Explanation Report</h2>
+      <h2>LIME Analysis</h2>
+      <p>The following visualization highlights which parts of the text influenced the classification decision:</p>
       {lime_html}
     </div>
 
     <div class="footer">
-      <hr/>
-      <p>If you do not see the bar chart or highlights, 
-      your environment may be blocking inline JavaScript. 
-      Try saving this HTML to a file and opening it in a normal browser.</p>
+      <p>AletheiaAI helps detect AI-generated content with user-centric explainability</p>
     </div>
   </div>
 </body>

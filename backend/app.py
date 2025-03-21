@@ -834,38 +834,54 @@ def parse_explanations(raw_explanation_text):
 
 @app.route("/api/smart_explanation_html", methods=["POST"])
 def smart_explanation_html():
-    """Return a beautiful HTML report with two explanations"""
+    """Return a clean HTML report with only valid explanations"""
     data = request.json
     text = data.get("text", "")
     if not text:
         return jsonify({"error": "Text required"}), 400
         
-    print("[DEBUG] smart_explanation_html called...")
-
     # (1) Probability of AI
     p_ai = predict_ai_probability(text, preprocessor, classifier_model, app_configs["device"])
     p_human = 1.0 - p_ai
     label_str = "AI-generated" if p_ai > 0.5 else "Human-written"
-
-    print(f"[DEBUG] p_ai = {p_ai:.4f}, p_human = {p_human:.4f}")
-    print(f"[DEBUG] Final classification: {label_str}")
-
-    # (2) Generate explanation if explanation_model is available
+    
+    # (2) Generate explanation
     if explanation_model is not None:
-        # Generate explanations
         raw_explanation = generate_explanation(
             text, 
             label_str, 
             explanation_tokenizer, 
             explanation_model
         )
-        # Parse the explanations from the raw text
-        explanation1, explanation2 = parse_explanations(raw_explanation)
+        # Extract only the valid explanations, completely ignoring any junk
+        valid_explanations = []
+        
+        # Try to find real explanations with proper content
+        exp1_match = re.search(r"Explanation #1:(.*?)(?:Explanation #2:|$)", raw_explanation, re.DOTALL)
+        exp2_match = re.search(r"Explanation #2:(.*?)$", raw_explanation, re.DOTALL)
+        
+        if exp1_match:
+            exp1 = exp1_match.group(1).strip()
+            if len(exp1) > 10 and exp1 not in ['"', '"and"', '"."']:  # Only include if substantial
+                valid_explanations.append(("Explanation #1", exp1))
+                
+        if exp2_match:
+            exp2 = exp2_match.group(1).strip()
+            if len(exp2) > 10 and exp2 not in ['"', '"."', '".']:  # Only include if substantial
+                valid_explanations.append(("Explanation #2", exp2))
     else:
-        explanation1 = "No explanation model available."
-        explanation2 = "No explanation model available."
-
-    # (3) Generate HTML report - COMPLETELY STRIPPED OF INSTRUCTION BOXES
+        valid_explanations = []
+    
+    # Generate explanation HTML only for valid explanations
+    explanations_html = ""
+    for title, content in valid_explanations:
+        explanations_html += f"""
+        <div class="explanation">
+          <h3>{title}</h3>
+          <p>{content}</p>
+        </div>
+        """
+    
     label_class = "ai" if label_str.lower().startswith("ai") else "human"
     
     html_report = f"""
@@ -902,7 +918,7 @@ def smart_explanation_html():
     h1, h2, h3 {{
       margin-bottom: 16px;
       font-weight: bold;
-      color: #4338ca; /* indigo-700 */
+      color: #4338ca;
     }}
 
     h1 {{
@@ -925,12 +941,12 @@ def smart_explanation_html():
     h3 {{
       font-size: 18px;
       margin-top: 20px;
-      color: #4f46e5; /* indigo-600 */
+      color: #4f46e5;
     }}
 
-    .classification-result {{
+    .content-box {{
       background: #f5f7ff;
-      border: 1px solid #e0e7ff; /* indigo-100 */
+      border: 1px solid #e0e7ff;
       padding: 20px;
       border-radius: 8px;
       margin-bottom: 24px;
@@ -982,6 +998,13 @@ def smart_explanation_html():
       text-shadow: 0 1px 2px rgba(0,0,0,0.2);
     }}
 
+    .input-text {{
+      padding: 15px;
+      line-height: 1.6;
+      max-height: 300px;
+      overflow-y: auto;
+    }}
+
     .explanation-section {{
       margin-top: 24px;
       padding: 20px;
@@ -1025,7 +1048,14 @@ def smart_explanation_html():
   <div class="container">
     <h1>Smart AI Explanation</h1>
 
-    <div class="classification-result">
+    <div class="content-box">
+      <h2>Input Text</h2>
+      <div class="input-text">
+        {text}
+      </div>
+    </div>
+
+    <div class="content-box">
       <h2>Classification Result</h2>
       <div class="prediction-label prediction-{label_class}">
         {label_str}
@@ -1041,19 +1071,12 @@ def smart_explanation_html():
       </div>
     </div>
 
+    {f'''
     <div class="explanation-section">
       <h2>AI-Generated Explanations</h2>
-      
-      <div class="explanation">
-        <h3>Explanation #1</h3>
-        <p>{explanation1}</p>
-      </div>
-      
-      <div class="explanation">
-        <h3>Explanation #2</h3>
-        <p>{explanation2}</p>
-      </div>
+      {explanations_html}
     </div>
+    ''' if explanations_html else ''}
 
     <div class="footer">
       <p>AletheiaAI helps detect AI-generated content with user-centric explainability</p>
@@ -1063,32 +1086,6 @@ def smart_explanation_html():
 </html>
 """
     return html_report, 200, {'Content-Type': 'text/html'}
-
-@app.route('/extract_pdf_text', methods=['POST'])
-def extract_pdf_text():
-    # Ensure a file was uploaded with the key 'file'
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-
-    pdf_file = request.files['file']
-
-    try:
-        # Create a PdfReader object from the uploaded file
-        reader = PdfReader(pdf_file)
-        
-        # Extract text from each page
-        text_content = []
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text_content.append(page_text)
-
-        extracted_text = "\n".join(text_content)
-        return jsonify({'text': extracted_text}), 200
-    except Exception as e:
-        # Log the error for debugging purposes
-        print(f"Error during PDF extraction: {e}")
-        return jsonify({'error': 'Failed to extract text from the PDF'}), 500
 
 @app.route("/api/explain", methods=["POST"])
 def explain_text():

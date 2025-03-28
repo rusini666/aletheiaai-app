@@ -1097,6 +1097,36 @@ def explain_text():
     classify_and_explain(text, classifier_model, tokenizer, device)
     return send_file("final_report.html", mimetype="text/html")
 
+@app.route("/extract_pdf_text", methods=["POST"])
+def extract_pdf_text():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    if file and file.filename.endswith('.pdf'):
+        try:
+            # Create a temporary file to save the PDF
+            file_path = "temp.pdf"
+            file.save(file_path)
+            
+            # Extract text using PyPDF2
+            extracted_text = ""
+            with open(file_path, 'rb') as pdf_file:
+                reader = PdfReader(pdf_file)
+                for page in reader.pages:
+                    extracted_text += page.extract_text() + "\n"
+            
+            # Remove the temporary file
+            os.remove(file_path)
+            
+            return jsonify({"text": extracted_text}), 200
+        except Exception as e:
+            return jsonify({"error": f"Error extracting PDF text: {str(e)}"}), 500
+    
+    return jsonify({"error": "Unsupported file type"}), 400
 ##############################################################################
 # (NEW) LIME Explanation Route (Bar Chart + color-coded text)
 ##############################################################################

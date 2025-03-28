@@ -806,31 +806,31 @@ def parse_explanations(raw_explanation_text):
     Parse the raw explanation text to extract just the explanations,
     removing the prompt and other artifacts.
     """
-    # Remove any instruction blocks that might be in the generated text
-    cleaned_text = re.sub(r'Each explanation should describe.*?verbatim\.', '', raw_explanation_text, flags=re.DOTALL)
+    # Clean up the raw text
+    cleaned_text = raw_explanation_text.strip()
     
-    exp1 = ""
-    exp2 = ""
+    # Remove common instruction text fragments that appear in the explanations
+    cleaned_text = cleaned_text.replace("Each explanation should describe unique reasons for why the text is considered AI-generated.", "")
+    cleaned_text = cleaned_text.replace("Do not restate the text verbatim.", "")
     
-    # Extract Explanation #1
-    exp1_match = re.search(r"Explanation #1:(.*?)(?:Explanation #2:|$)", 
-                          cleaned_text, re.DOTALL)
-    if exp1_match:
-        exp1 = exp1_match.group(1).strip()
+    # Extract explanations using regex pattern matching
+    explanation_pattern = r"Explanation #(\d+):(.*?)(?=Explanation #\d+:|$)"
+    matches = re.findall(explanation_pattern, cleaned_text, re.DOTALL)
     
-    # Extract Explanation #2
-    exp2_match = re.search(r"Explanation #2:(.*?)$", 
-                          cleaned_text, re.DOTALL)
-    if exp2_match:
-        exp2 = exp2_match.group(1).strip()
+    valid_explanations = []
+    for num, content in matches:
+        clean_content = content.strip()
+        # Only add explanations with substantial content
+        if len(clean_content) > 15 and not clean_content in ['"', '"and"', '"."', '".']:
+            valid_explanations.append((f"Explanation #{num}", clean_content))
     
-    # If parsing failed, use some fallbacks
-    if not exp1:
-        exp1 = "No explanation could be extracted."
-    if not exp2:
-        exp2 = "No second explanation could be extracted."
-        
-    return exp1, exp2
+    # Return a tuple of explanations or default messages if none found
+    if len(valid_explanations) >= 2:
+        return valid_explanations[0][1], valid_explanations[1][1]
+    elif len(valid_explanations) == 1:
+        return valid_explanations[0][1], "No second explanation could be extracted."
+    else:
+        return "No explanation could be extracted.", "No explanation could be extracted."
 
 @app.route("/api/smart_explanation_html", methods=["POST"])
 def smart_explanation_html():

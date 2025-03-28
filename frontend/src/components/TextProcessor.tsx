@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 interface ClassificationResult {
   prediction: string;
   explanation: string;
+  originalText?: string; // Added to receive this from server if available
 }
 
 const TextProcessor: React.FC = () => {
@@ -125,9 +126,13 @@ const TextProcessor: React.FC = () => {
       setIsLoading(false);
       setProcessingButton(null);
       if (response.status === 200) {
+        // IMPORTANT FIX: Always include the original text
+        const result = response.data as ClassificationResult;
+
         navigate("/smart-explanation", {
           state: {
-            classificationResult: response.data as ClassificationResult,
+            classificationResult: result,
+            originalText: inputText, // Explicitly include the input text
           },
         });
       } else {
@@ -161,7 +166,10 @@ const TextProcessor: React.FC = () => {
       setProcessingButton(null);
       if (response.status === 200) {
         navigate("/explanation-report", {
-          state: { htmlContent: response.data },
+          state: {
+            htmlContent: response.data,
+            originalText: inputText, // Also include original text for consistency
+          },
         });
       } else {
         setError("Failed to generate SHAP + LIME explanation.");

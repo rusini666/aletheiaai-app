@@ -37,6 +37,18 @@ const SmartExplanationPage: React.FC = () => {
   const humanProbFormatted = (humanProb * 100).toFixed(1);
   const aiProbFormatted = (aiProb * 100).toFixed(1);
 
+  // Clean explanation text and extract useful content
+  const cleanExplanationText = (text: string): string => {
+    // Remove common instruction patterns for both AI and human explanations
+    return text
+      .replace(
+        /Each explanation should describe unique reasons for why the text is considered (AI|Human)-\w+\./gi,
+        ""
+      )
+      .replace(/Do not restate the text verbatim\./g, "")
+      .trim();
+  };
+
   // Parse explanations function with improved filtering
   const parseExplanations = (rawText: string) => {
     // Extract with regex
@@ -48,20 +60,12 @@ const SmartExplanationPage: React.FC = () => {
 
     for (const match of matches) {
       const num = match[1];
-      let content = match[2].trim();
-
-      // Specific filtering for common template text
-      content = content.replace(
-        /Each explanation should describe unique reasons for why the text is considered AI-generated\./g,
-        ""
-      );
-      content = content.replace(/Do not restate the text verbatim\./g, "");
-      content = content.trim();
+      let content = cleanExplanationText(match[2].trim());
 
       // Filter out quotes and short/empty explanations
       if (
         content.length > 10 &&
-        !['"', '"and"', '"."', '".'].includes(content)
+        !['"', '"and"', '"."', '".', "."].includes(content)
       ) {
         validExplanations.push([`Explanation #${num}`, content]);
       }

@@ -769,7 +769,7 @@ explanation_tokenizer, explanation_model = explanation_get_pretrained_model()
 @app.route("/api/classify", methods=["POST"])
 def classify_text():
     """
-    Classify text & generate 2 short explanations from Mistral.
+    Classify text & generate explanations
     """
     data = request.get_json()
     if not data or "text" not in data:
@@ -788,15 +788,13 @@ def classify_text():
             explanation_model=explanation_model
         )
         
-        # Parse the explanations to get clean versions
-        explanation1, explanation2 = parse_explanations(raw_explanation)
-        
-        # Format them nicely for the frontend
-        formatted_explanation = f"Explanation #1:\n{explanation1}\n\nExplanation #2:\n{explanation2}"
+        # Format the explanations properly, removing instruction text
+        cleaned_explanation = parse_explanations(raw_explanation)
         
         return jsonify({
             "prediction": pred,
-            "explanation": formatted_explanation
+            "explanation": cleaned_explanation,
+            "originalText": text  # Include the original text
         }), 200
     except Exception as e:
         return jsonify({"error": f"Error: {str(e)}"}), 500
@@ -806,12 +804,18 @@ def parse_explanations(raw_explanation_text):
     Parse the raw explanation text to extract just the explanations,
     removing the prompt and other artifacts.
     """
-    # Clean up the raw text
-    cleaned_text = raw_explanation_text.strip()
+    import re
     
     # Remove common instruction text fragments that appear in the explanations
-    cleaned_text = cleaned_text.replace("Each explanation should describe unique reasons for why the text is considered AI-generated.", "")
-    cleaned_text = cleaned_text.replace("Do not restate the text verbatim.", "")
+    # Handle both AI-generated and Human-written patterns
+    cleaned_text = raw_explanation_text.strip()
+    cleaned_text = re.sub(
+        r"Each explanation should describe unique reasons for why the text is considered (AI|Human)-\w+\.", 
+        "", 
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+    cleaned_text = re.sub(r"Do not restate the text verbatim\.", "", cleaned_text)
     
     # Extract explanations using regex pattern matching
     explanation_pattern = r"Explanation #(\d+):(.*?)(?=Explanation #\d+:|$)"
@@ -824,13 +828,12 @@ def parse_explanations(raw_explanation_text):
         if len(clean_content) > 15 and not clean_content in ['"', '"and"', '"."', '".']:
             valid_explanations.append((f"Explanation #{num}", clean_content))
     
-    # Return a tuple of explanations or default messages if none found
-    if len(valid_explanations) >= 2:
-        return valid_explanations[0][1], valid_explanations[1][1]
-    elif len(valid_explanations) == 1:
-        return valid_explanations[0][1], "No second explanation could be extracted."
-    else:
-        return "No explanation could be extracted.", "No explanation could be extracted."
+    # Format explanations for return
+    formatted_explanation = ""
+    for title, content in valid_explanations:
+        formatted_explanation += f"{title}:\n{content}\n\n"
+    
+    return formatted_explanation.strip()
 
 @app.route("/api/smart_explanation_html", methods=["POST"])
 def smart_explanation_html():

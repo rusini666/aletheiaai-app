@@ -1,54 +1,43 @@
-# React + TypeScript + Vite
+# 📘 AletheiaAI – Detecting AI-Generated Text with User-Centric Explainability
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+AletheiaAI is a lightweight AI vs. Human text detection tool that classifies text and explains its decisions to the user using a combination of visual and sentence-level explanations. It uses a LoRA-finetuned OPT-1.3b model for classification, LIME for visual explanation, and Mistral-7B-Instruct for smart sentence-level explanation.
 
-Currently, two official plugins are available:
+---
+## 📁 Dataset
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The system was trained on a monolingual English dataset derived from the **M4 corpus**, including:
 
-## Expanding the ESLint configuration
+- **AI-generated text**: Sourced from models such as ChatGPT, GPT-3.5, OPT, and GPT-2.
+- **Human-written text**: Sourced from Wikipedia, Reddit, WikiHow, and arXiv.
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+### Benchmark Datasets:
+- [AI Text Detection Pile](https://huggingface.co/datasets/artem9k/ai-text-detection-pile)
+- [HC3 Dataset](https://huggingface.co/datasets/Hello-SimpleAI/HC3)
 
-- Configure the top-level `parserOptions` property like this:
+All data is preprocessed using tokenization, cleaning, stopword filtering, and lowercasing.
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+---
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+## 🧠 Model Details
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+- **Base model**: OPT-1.3b
+- **Fine-tuning technique**: LoRA (Low-Rank Adaptation)
+- **Loss Function**: CrossEntropyLoss
+- **Split**: 70% train / 20% validation / 10% test
+- **Optimization**: AdamW
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
-# AletheiaAI App
+---
+
+## 💡 Explainability
+
+- 🟩 **LIME** – Highlights top influential words per classification
+- 🧠 **Mistral-7B-Instruct** – Produces natural language sentence-level explanations
+
+Both explanation types are integrated in the user interface and accessible through API.
+
+---
+
+## 🛠️ Project Setup
 
 ## Backend (Python)
 1. `cd backend/`

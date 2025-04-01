@@ -1,9 +1,9 @@
-# 📘 AletheiaAI – Detecting AI-Generated Text with User-Centric Explainability
+# AletheiaAI – Detecting AI-Generated Text with User-Centric Explainability
 
 AletheiaAI is a lightweight AI vs. Human text detection tool that classifies text and explains its decisions to the user using a combination of visual and sentence-level explanations. It uses a LoRA-finetuned OPT-1.3b model for classification, LIME for visual explanation, and Mistral-7B-Instruct for smart sentence-level explanation.
 
 ---
-## 📁 Dataset
+## Dataset
 
 The system was trained on a monolingual English dataset derived from the **M4 corpus**, including:
 
@@ -18,7 +18,7 @@ All data is preprocessed using tokenization, cleaning, stopword filtering, and l
 
 ---
 
-## 🧠 Model Details
+## Model Details
 
 - **Base model**: OPT-1.3b
 - **Fine-tuning technique**: LoRA (Low-Rank Adaptation)
@@ -30,14 +30,14 @@ All data is preprocessed using tokenization, cleaning, stopword filtering, and l
 
 ## 💡 Explainability
 
-- 🟩 **LIME** – Highlights top influential words per classification
-- 🧠 **Mistral-7B-Instruct** – Produces natural language sentence-level explanations
+- **LIME** – Highlights top influential words per classification
+- **Mistral-7B-Instruct** – Produces natural language sentence-level explanations
 
 Both explanation types are integrated in the user interface and accessible through API.
 
 ---
 
-## 🛠️ Project Setup
+## Project Setup
 
 ## Backend (Python)
 1. `cd backend/`
